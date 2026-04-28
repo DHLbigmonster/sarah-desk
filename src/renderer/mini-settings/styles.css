@@ -1,0 +1,226 @@
+:root {
+  color-scheme: light;
+  font-family: "Geist Variable", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  background: #f3f3ee;
+  color: #171812;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f3f3ee;
+}
+
+button {
+  font: inherit;
+}
+
+.shell {
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  gap: 12px;
+  padding: 28px 20px 18px;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 6px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #777b70;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.mode {
+  border: 1px solid rgba(42, 48, 38, 0.12);
+  border-radius: 10px;
+  padding: 7px 11px;
+  color: #2f5948;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 4px;
+  border: 1px solid rgba(38, 42, 34, 0.1);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background:
+    linear-gradient(135deg, rgba(48, 89, 70, 0.09), rgba(255, 255, 255, 0.7)),
+    rgba(255, 255, 255, 0.68);
+  box-shadow:
+    0 16px 42px rgba(34, 37, 30, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.88) inset;
+}
+
+.panel {
+  overflow: hidden;
+  border: 1px solid rgba(38, 42, 34, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow:
+    0 16px 42px rgba(34, 37, 30, 0.06),
+    0 1px 0 rgba(255, 255, 255, 0.82) inset;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 68px;
+  padding: 13px 16px;
+  border-bottom: 1px solid rgba(42, 48, 38, 0.09);
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.label {
+  display: block;
+  margin-bottom: 4px;
+  color: #777b70;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+strong {
+  display: block;
+  overflow: hidden;
+  color: #191b16;
+  font-size: 15px;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+small {
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  color: #707568;
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pill {
+  min-width: 72px;
+  border-radius: 999px;
+  padding: 7px 10px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.signal {
+  width: 54px;
+  height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 0;
+}
+
+.signal::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.pill.ok {
+  background: rgba(213, 236, 224, 0.95);
+  color: #235d43;
+}
+
+.pill.warn {
+  background: rgba(240, 222, 180, 0.96);
+  color: #76501a;
+}
+
+.signal.ok {
+  background: rgba(213, 236, 224, 0.85);
+}
+
+.signal.ok::before {
+  background: #2f8f61;
+  box-shadow: 0 0 0 6px rgba(47, 143, 97, 0.12);
+}
+
+.signal.warn {
+  background: rgba(240, 222, 180, 0.9);
+}
+
+.signal.warn::before {
+  background: #b7791f;
+  box-shadow: 0 0 0 6px rgba(183, 121, 31, 0.12);
+}
+
+footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: auto;
+}
+
+button {
+  border: 1px solid rgba(42, 48, 38, 0.12);
+  border-radius: 9px;
+  padding: 8px 11px;
+  color: #1d1f1a;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+}
+
+button:hover {
+  background: #ffffff;
+}
+
+button.primary {
+  border-color: rgba(43, 90, 69, 0.22);
+  color: #214f3b;
+  background: rgba(213, 236, 224, 0.8);
+}
+
+.error {
+  border: 1px solid #e1c4b8;
+  border-radius: 8px;
+  padding: 14px;
+  background: #fff4ef;
+  color: #7a2e1b;
+  font-size: 13px;
+  line-height: 1.45;
+}

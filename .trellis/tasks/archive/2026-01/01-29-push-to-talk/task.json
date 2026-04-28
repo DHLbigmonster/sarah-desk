@@ -1,0 +1,41 @@
+{
+  "id": "push-to-talk",
+  "name": "push-to-talk",
+  "title": "Push-to-Talk Global Keyboard Hook",
+  "description": "",
+  "status": "completed",
+  "dev_type": "backend",
+  "scope": "asr",
+  "priority": "P1",
+  "creator": "taosu",
+  "assignee": "taosu",
+  "createdAt": "2026-01-29",
+  "completedAt": "2026-01-29",
+  "branch": "feature/push-to-talk",
+  "base_branch": null,
+  "worktree_path": null,
+  "current_phase": 2,
+  "next_action": [
+    {
+      "phase": 1,
+      "action": "implement"
+    },
+    {
+      "phase": 2,
+      "action": "check"
+    },
+    {
+      "phase": 3,
+      "action": "finish"
+    },
+    {
+      "phase": 4,
+      "action": "create-pr"
+    }
+  ],
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "relatedFiles": [],
+  "notes": ""
+}

@@ -1,0 +1,9 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/shared/index.md", "reason": "Shared coding standards"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/components.md", "reason": "Component conventions"}
+{"file": ".trellis/tasks/01-29-floating-window-visual-bugs/prd.md", "reason": "Task requirements"}
+{"file": "src/main/windows/floating.ts", "reason": "Window height control"}
+{"file": "src/renderer/src/modules/asr/components/FloatingWindow.tsx", "reason": "Main component"}
+{"file": "src/renderer/src/modules/asr/components/TranscriptDisplay.tsx", "reason": "Transcript display and scroll"}
+{"file": "src/renderer/src/styles/components/floating-window.css", "reason": "CSS styles"}

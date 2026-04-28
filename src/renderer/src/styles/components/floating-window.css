@@ -1,0 +1,140 @@
+/* font-patch/floating-window.css
+ * 覆盖 src/renderer/src/styles/components/floating-window.css
+ * 改动：font-family 换为 Geist Variable
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+.floating-window {
+  width: 184px;
+  height: 48px;
+  background: transparent;
+  overflow: visible;
+  font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  user-select: none;
+}
+
+.floating-window__content {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(16, 16, 18, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 14px 28px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(18px) saturate(1.12);
+  -webkit-app-region: no-drag;
+}
+
+.floating-window__content.is-error {
+  border-color: rgba(220, 87, 72, 0.5);
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.42),
+    0 0 0 1px rgba(220, 87, 72, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.floating-window__action {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.96);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    background-color 140ms ease,
+    opacity 140ms ease;
+  -webkit-app-region: no-drag;
+}
+
+.floating-window__action:hover {
+  transform: scale(1.04);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.floating-window__action:active {
+  transform: scale(0.96);
+}
+
+.floating-window__action--confirm {
+  background: rgba(255, 255, 255, 0.96);
+  color: rgba(20, 20, 22, 1);
+}
+
+.floating-window__action--confirm:hover {
+  background: rgba(255, 255, 255, 1);
+}
+
+.floating-window__action--ghost {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.floating-window__wave {
+  width: 90px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.audio-waveform {
+  width: 100%;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.audio-waveform__bar {
+  width: 4px;
+  min-height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  transform-origin: center;
+  animation: floating-wave-idle 1.15s ease-in-out infinite;
+}
+
+.audio-waveform.is-active .audio-waveform__bar {
+  animation-duration: 0.72s;
+}
+
+.audio-waveform--busy .audio-waveform__bar {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.audio-waveform--error .audio-waveform__bar {
+  background: rgba(220, 87, 72, 0.96);
+}
+
+@keyframes floating-wave-idle {
+  0%,
+  100% {
+    transform: scaleY(0.9);
+  }
+
+  50% {
+    transform: scaleY(1.08);
+  }
+}

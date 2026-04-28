@@ -1,0 +1,10 @@
+{"file": ".trellis/workflow.md", "reason": "Project workflow and conventions"}
+{"file": ".trellis/spec/shared/index.md", "reason": "Shared coding standards"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend development guide"}
+{"file": ".trellis/spec/frontend/components.md", "reason": "Component conventions"}
+{"file": ".trellis/tasks/01-29-floating-window-layout/prd.md", "reason": "Task requirements and visual specs"}
+{"file": ".trellis/spec/frontend/ipc-electron.md", "reason": "IPC communication patterns"}
+{"file": "src/main/windows/floating.ts", "reason": "Current window implementation"}
+{"file": "src/renderer/src/modules/asr/components/FloatingWindow.tsx", "reason": "Current React component"}
+{"file": "src/renderer/src/styles/components/floating-window.css", "reason": "Current CSS styles"}
+{"file": "src/shared/constants/channels.ts", "reason": "IPC channel definitions"}
