@@ -230,6 +230,12 @@ export class KeyboardService {
     if (e.keycode === RIGHT_CTRL_KEYCODE) {
       logger.info('Right Ctrl keydown received', { keycode: e.keycode });
     }
+    if (e.keycode === UiohookKey.Space && (this.heldModifiers.has('rctrl') || this.heldModifiers.has('alt'))) {
+      logger.info('Space keydown received for voice chord', {
+        keycode: e.keycode,
+        heldModifiers: Array.from(this.heldModifiers),
+      });
+    }
     // Track Shift modifier state independently
     if (SHIFT_KEYCODES.has(e.keycode)) {
       this.heldModifiers.add('shift');

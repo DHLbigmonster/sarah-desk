@@ -92,3 +92,32 @@ Packaged verification confirmed:
 - If custom dictionary data exists, migrate it from the old config directory to `~/.config/sarah-desk/dictionary.json`.
 - Consider renaming the local folder to `sarah-desk` after active shells and editor sessions are closed.
 - Next UI work should prioritize a custom menubar popover, markdown rendering in answer overlay, and a clearer first-run permission flow.
+
+## 2026-04-28 Quick Ask Control+Space Fix
+
+User request:
+
+- Right Control + Space did not trigger Quick Ask, while Right Control + Shift command mode worked.
+
+What changed:
+
+- `src/main/services/push-to-talk/voice-mode-manager.ts`
+  - Added an Electron `globalShortcut.register('Control+Space', ...)` fallback for Quick Ask.
+  - Kept the existing uiohook `RightCtrl + Space` path.
+  - Both paths now route through one Quick Ask toggle helper.
+  - Dispose unregisters the Electron shortcut.
+- `src/main/services/keyboard/keyboard.service.ts`
+  - Added focused logging for Space keydown when Right Ctrl or Alt is held, so future logs show whether the low-level hook receives the chord.
+- `src/main/services/push-to-talk/voice-mode-manager.test.ts`
+  - Added coverage that the global shortcut fallback starts Quick Ask and cancels the pending bare Right Ctrl handler.
+
+Decision:
+
+- macOS may reserve or swallow `Control+Space` for input-source switching. The Electron global shortcut fallback makes this path explicit: if registration fails, Sarah logs `Failed to register Control+Space global shortcut for Quick Ask`.
+
+Verification:
+
+- `pnpm -s typecheck`
+- `pnpm -s lint`
+- `pnpm -s test` passed with 47 tests.
+- `git diff --check`

@@ -8,6 +8,7 @@ const {
   mockAsrService,
   mockFloatingWindow,
   mockAgentWindow,
+  mockGlobalShortcut,
 } = vi.hoisted(() => ({
   mockKeyboardService: {
     register: vi.fn(),
@@ -31,6 +32,14 @@ const {
     showWithContext: vi.fn(),
     sendExternalSubmit: vi.fn(),
   },
+  mockGlobalShortcut: {
+    register: vi.fn().mockReturnValue(true),
+    unregister: vi.fn(),
+  },
+}));
+
+vi.mock('electron', () => ({
+  globalShortcut: mockGlobalShortcut,
 }));
 
 vi.mock('electron-log', () => ({
@@ -218,6 +227,22 @@ describe('VoiceModeManager — state transitions', () => {
   it('registers hotkeys on initialize', () => {
     mgr.initialize();
     expect(mockKeyboardService.register).toHaveBeenCalled();
+    expect(mockGlobalShortcut.register).toHaveBeenCalledWith('Control+Space', expect.any(Function));
+  });
+
+  it('starts quick ask from Control+Space global shortcut fallback', async () => {
+    mgr.initialize();
+    const callback = mockGlobalShortcut.register.mock.calls.find(
+      ([accelerator]) => accelerator === 'Control+Space',
+    )?.[1] as (() => void) | undefined;
+    expect(callback).toBeDefined();
+
+    callback?.();
+    await vi.waitFor(() => {
+      expect(mgr.currentState).toBe('quickask_recording');
+    });
+    expect(mockKeyboardService.cancelActiveHandler).toHaveBeenCalledWith(0xa3);
+    expect(mockAsrService.start).toHaveBeenCalledOnce();
   });
 
   it('initialize is idempotent', () => {
@@ -231,5 +256,6 @@ describe('VoiceModeManager — state transitions', () => {
     mgr.initialize();
     mgr.dispose();
     expect(mockKeyboardService.unregister).toHaveBeenCalled();
+    expect(mockGlobalShortcut.unregister).toHaveBeenCalledWith('Control+Space');
   });
 });

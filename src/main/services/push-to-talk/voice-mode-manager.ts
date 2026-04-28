@@ -21,6 +21,7 @@
  */
 
 import log from 'electron-log';
+import { globalShortcut } from 'electron';
 import { UiohookKey } from 'uiohook-napi';
 import { keyboardService } from '../keyboard';
 import { asrService } from '../asr';
@@ -54,6 +55,15 @@ export class VoiceModeManager {
    */
   private ctrlUsedForStop = false;
   private lastStartTime = 0;
+
+  private async toggleQuickAskFromShortcut(source: 'uiohook' | 'globalShortcut'): Promise<void> {
+    logger.info('VoiceModeManager: quickask shortcut', { source, state: this.state });
+    if (this.state === 'idle') {
+      await this.startQuickAsk();
+      return;
+    }
+    await this.stopCurrentMode();
+  }
 
   initialize(): void {
     if (this.isInitialized) {
@@ -102,11 +112,7 @@ export class VoiceModeManager {
       modifier: 'rctrl',
       onKeyDown: () => {
         keyboardService.cancelActiveHandler(UiohookKey.CtrlRight);
-        if (this.state === 'idle') {
-          void this.startQuickAsk();
-        } else {
-          void this.stopCurrentMode();
-        }
+        void this.toggleQuickAskFromShortcut('uiohook');
       },
     });
     keyboardService.register({
@@ -114,13 +120,17 @@ export class VoiceModeManager {
       modifier: 'alt',
       onKeyDown: () => {
         keyboardService.cancelActiveHandler(UiohookKey.AltRight);
-        if (this.state === 'idle') {
-          void this.startQuickAsk();
-        } else {
-          void this.stopCurrentMode();
-        }
+        void this.toggleQuickAskFromShortcut('uiohook');
       },
     });
+
+    const quickAskRegistered = globalShortcut.register('Control+Space', () => {
+      keyboardService.cancelActiveHandler(UiohookKey.CtrlRight);
+      void this.toggleQuickAskFromShortcut('globalShortcut');
+    });
+    if (!quickAskRegistered) {
+      logger.warn('Failed to register Control+Space global shortcut for Quick Ask');
+    }
 
     this.isInitialized = true;
     logger.info('VoiceModeManager initialized');
@@ -137,6 +147,7 @@ export class VoiceModeManager {
     keyboardService.unregister(UiohookKey.AltRight, 'shift');
     keyboardService.unregister(UiohookKey.Space, 'rctrl');
     keyboardService.unregister(UiohookKey.Space, 'alt');
+    globalShortcut.unregister('Control+Space');
     this.isInitialized = false;
     logger.info('VoiceModeManager disposed');
   }
