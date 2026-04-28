@@ -28,7 +28,7 @@ Keep this managed block so 'trellis update' can refresh the instructions.
 ## Memory Rule
 
 - `CLAUDE.md` is the single handoff memory file and the single source of truth for current project architecture.
-- After every meaningful task, update `/Users/chaosmac/Desktop/open-typeless/CLAUDE.md`.
+- After every meaningful task, update `CLAUDE.md`.
 - Each update must record:
   - what the user asked for
   - what changed
