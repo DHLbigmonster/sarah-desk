@@ -89,9 +89,47 @@ Packaged verification confirmed:
 ## Open Items
 
 - Re-grant macOS permissions for `com.sarah.app`: microphone, input monitoring, accessibility.
+- Reinstalling ad-hoc packaged builds can make macOS TCC treat Sarah as changed; if all right-Control hotkeys stop working, check `~/Library/Logs/Sarah/main.log` for `hasAccessibility: false` and re-enable Sarah in Accessibility/Input Monitoring.
 - If custom dictionary data exists, migrate it from the old config directory to `~/.config/sarah-desk/dictionary.json`.
 - Consider renaming the local folder to `sarah-desk` after active shells and editor sessions are closed.
 - Next UI work should prioritize a custom menubar popover, markdown rendering in answer overlay, and a clearer first-run permission flow.
+
+## 2026-04-28 Hotkey Permission Recovery
+
+User request:
+
+- After reinstalling Sarah, Right Control, Right Control + Shift, and Right Control + Space all stopped working.
+
+What changed:
+
+- Confirmed from `~/Library/Logs/Sarah/main.log` that Sarah was starting with `hasAccessibility: false`, so uiohook keyboard hooks were intentionally skipped to avoid native crashes.
+- `src/main/services/push-to-talk/voice-mode-manager.ts`
+  - Split `initializeQuickAskShortcut()` out from full uiohook initialization.
+  - `Control+Space` now registers through Electron `globalShortcut` even when Accessibility is missing and right-Control hooks cannot start.
+  - `dispose()` unregisters the Quick Ask fallback even if only that fallback was initialized.
+- `src/main.ts`
+  - When Accessibility is missing, Sarah now opens both keyboard permission panes and still initializes the Quick Ask fallback.
+- `src/main/services/permissions/permissions.service.ts`
+  - Added `openKeyboardPermissionSettings()` and made the notification explain that Sarah must be enabled in both Accessibility and Input Monitoring, then restarted.
+- `scripts/install-packaged-app.sh`
+  - Avoids a second install-time ad-hoc re-sign after copying the packaged app, reducing avoidable TCC identity churn.
+
+Decision:
+
+- Right Control and Right Control + Shift still require macOS Accessibility/Input Monitoring because they depend on uiohook. `Control+Space` can fall back to Electron globalShortcut, but may still fail if macOS reserves that chord for input-source switching.
+
+Next steps:
+
+- After installing, re-enable `/Users/chaosmac/Applications/Sarah.app` in Accessibility and Input Monitoring, then restart Sarah.
+- Longer term, replace ad-hoc signing with a stable local/developer signing identity so package reinstallations do not keep invalidating TCC grants.
+
+Verification:
+
+- `pnpm -s typecheck`
+- `pnpm -s lint`
+- `pnpm -s test` passed with 49 tests.
+- `pnpm -s verify:mini` passed 68/68 packaged checks.
+- `npm run install:app` completed after cleaning stale `out/Sarah-darwin-arm64` before packaging.
 
 ## 2026-04-28 Quick Ask Control+Space Fix
 

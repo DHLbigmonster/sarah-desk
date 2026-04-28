@@ -25,6 +25,7 @@ if pgrep -f "$APP_PROCESS_PATTERN" >/dev/null 2>&1; then
 fi
 
 echo "Packaging $APP_NAME..."
+rm -rf "$ROOT_DIR/out/Sarah-darwin-arm64"
 npm run package
 
 if [ ! -d "$PACKAGED_APP_PATH" ]; then
@@ -37,9 +38,6 @@ rm -rf "$TARGET_APP_PATH"
 ditto "$PACKAGED_APP_PATH" "$TARGET_APP_PATH"
 xattr -dr com.apple.quarantine "$TARGET_APP_PATH" >/dev/null 2>&1 || true
 
-echo "Re-signing with fixed bundle identifier..."
-xattr -cr "$TARGET_APP_PATH" >/dev/null 2>&1 || true
-codesign --force --deep --sign - --identifier "com.sarah.app" "$TARGET_APP_PATH" 2>&1 || true
-
 echo "Installed to $TARGET_APP_PATH"
+echo "If global hotkeys stop working after reinstall, re-enable Sarah in Accessibility and Input Monitoring."
 open "$TARGET_APP_PATH"

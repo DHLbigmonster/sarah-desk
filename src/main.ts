@@ -538,12 +538,16 @@ app.on('ready', async () => {
 
   // Mode 1 & 2: keyboard hooks require Accessibility permission.
   // Skip uiohook initialization entirely if not granted — it crashes with SIGABRT otherwise.
-  const hasAccessibility = permissionsService.getAccessibilityStatus();
+  const hasAccessibility = permissionsService.getAccessibilityStatus(!smokeTestMode);
   logger.info('Accessibility permission check', { hasAccessibility });
   if (hasAccessibility) {
     voiceModeManager.initialize();
   } else {
     logger.warn('Accessibility not granted — keyboard hooks disabled until permission is given and app is restarted');
+    if (!smokeTestMode) {
+      permissionsService.openKeyboardPermissionSettings();
+    }
+    voiceModeManager.initializeQuickAskShortcut();
   }
 
   // Show notification for any remaining missing permissions

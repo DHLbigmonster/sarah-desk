@@ -44,6 +44,7 @@ export type VoiceState =
 export class VoiceModeManager {
   private state: VoiceState = 'idle';
   private isInitialized = false;
+  private isQuickAskShortcutInitialized = false;
   private readonly stopKeys = new Set<number>([
     UiohookKey.CtrlRight,
     UiohookKey.AltRight,
@@ -63,6 +64,26 @@ export class VoiceModeManager {
       return;
     }
     await this.stopCurrentMode();
+  }
+
+  initializeQuickAskShortcut(): void {
+    if (this.isQuickAskShortcutInitialized) {
+      logger.info('VoiceModeManager quick ask shortcut already initialized, skipping');
+      return;
+    }
+
+    const quickAskRegistered = globalShortcut.register('Control+Space', () => {
+      keyboardService.cancelActiveHandler(UiohookKey.CtrlRight);
+      void this.toggleQuickAskFromShortcut('globalShortcut');
+    });
+    this.isQuickAskShortcutInitialized = true;
+
+    if (quickAskRegistered) {
+      logger.info('Registered Control+Space global shortcut for Quick Ask');
+      return;
+    }
+
+    logger.warn('Failed to register Control+Space global shortcut for Quick Ask');
   }
 
   initialize(): void {
@@ -124,13 +145,7 @@ export class VoiceModeManager {
       },
     });
 
-    const quickAskRegistered = globalShortcut.register('Control+Space', () => {
-      keyboardService.cancelActiveHandler(UiohookKey.CtrlRight);
-      void this.toggleQuickAskFromShortcut('globalShortcut');
-    });
-    if (!quickAskRegistered) {
-      logger.warn('Failed to register Control+Space global shortcut for Quick Ask');
-    }
+    this.initializeQuickAskShortcut();
 
     this.isInitialized = true;
     logger.info('VoiceModeManager initialized');
@@ -138,6 +153,10 @@ export class VoiceModeManager {
 
   dispose(): void {
     if (!this.isInitialized) {
+      if (this.isQuickAskShortcutInitialized) {
+        globalShortcut.unregister('Control+Space');
+        this.isQuickAskShortcutInitialized = false;
+      }
       logger.info('VoiceModeManager not initialized, skipping dispose');
       return;
     }
@@ -147,7 +166,10 @@ export class VoiceModeManager {
     keyboardService.unregister(UiohookKey.AltRight, 'shift');
     keyboardService.unregister(UiohookKey.Space, 'rctrl');
     keyboardService.unregister(UiohookKey.Space, 'alt');
-    globalShortcut.unregister('Control+Space');
+    if (this.isQuickAskShortcutInitialized) {
+      globalShortcut.unregister('Control+Space');
+      this.isQuickAskShortcutInitialized = false;
+    }
     this.isInitialized = false;
     logger.info('VoiceModeManager disposed');
   }

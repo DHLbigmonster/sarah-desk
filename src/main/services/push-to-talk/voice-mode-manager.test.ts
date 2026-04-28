@@ -245,6 +245,22 @@ describe('VoiceModeManager — state transitions', () => {
     expect(mockAsrService.start).toHaveBeenCalledOnce();
   });
 
+  it('can initialize only the Control+Space quick ask fallback', async () => {
+    mgr.initializeQuickAskShortcut();
+    expect(mockKeyboardService.register).not.toHaveBeenCalled();
+
+    const callback = mockGlobalShortcut.register.mock.calls.find(
+      ([accelerator]) => accelerator === 'Control+Space',
+    )?.[1] as (() => void) | undefined;
+    expect(callback).toBeDefined();
+
+    callback?.();
+    await vi.waitFor(() => {
+      expect(mgr.currentState).toBe('quickask_recording');
+    });
+    expect(mockAsrService.start).toHaveBeenCalledOnce();
+  });
+
   it('initialize is idempotent', () => {
     mgr.initialize();
     const callCount = mockKeyboardService.register.mock.calls.length;
@@ -256,6 +272,13 @@ describe('VoiceModeManager — state transitions', () => {
     mgr.initialize();
     mgr.dispose();
     expect(mockKeyboardService.unregister).toHaveBeenCalled();
+    expect(mockGlobalShortcut.unregister).toHaveBeenCalledWith('Control+Space');
+  });
+
+  it('unregisters quick ask fallback when only that shortcut was initialized', () => {
+    mgr.initializeQuickAskShortcut();
+    mgr.dispose();
+    expect(mockKeyboardService.unregister).not.toHaveBeenCalled();
     expect(mockGlobalShortcut.unregister).toHaveBeenCalledWith('Control+Space');
   });
 });

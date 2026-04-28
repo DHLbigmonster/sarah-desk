@@ -90,6 +90,13 @@ export class PermissionsService {
     });
   }
 
+  openKeyboardPermissionSettings(): void {
+    this.openSettings('accessibility');
+    setTimeout(() => {
+      this.openSettings('inputMonitoring');
+    }, 800);
+  }
+
   /**
    * Run the full startup permission flow:
    *   1. Request microphone permission (shows system dialog first time)
@@ -151,12 +158,12 @@ export class PermissionsService {
 
     const n = new Notification({
       title: 'Sarah 需要系统权限',
-      body: `语音功能需要：${missing.join('、')}。\n点击打开「输入监控」设置，其他项目系统已自动提示。`,
+      body: `语音快捷键需要：${missing.join('、')}。\n点击后在「辅助功能」和「输入监控」里启用 Sarah，然后重启 Sarah。`,
       silent: false,
     });
 
     n.on('click', () => {
-      this.openSettings('inputMonitoring');
+      this.openKeyboardPermissionSettings();
     });
 
     n.show();
