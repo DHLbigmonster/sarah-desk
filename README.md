@@ -2,249 +2,216 @@
 
 > The Siri you actually wanted.
 
-Sarah is a macOS menu bar voice assistant. Talk to it — it dictates into the focused app, answers questions, or executes agent workflows on your desktop.
+Sarah is a macOS menu bar voice assistant built with Electron. It listens to your voice through a global hotkey, converts speech to text in real time, and either inserts the text at your cursor or hands it off to an AI agent that can operate your apps — all without leaving the keyboard.
 
-## Features
+## What It Does
 
-- **Mode 1 — Push-to-Talk Dictation**: Hold Right Option, speak, release. Text is inserted at the cursor in any app.
-- **Mode 2 — Voice Agent**: Hold Right Ctrl, speak, release. Your voice becomes an instruction to an AI agent that can operate your apps.
-- **Mode 3 — Screenshot Agent**: Press Cmd+Shift+Space. Sarah screenshots the current window and opens an agent panel for context-aware commands.
-- **Menu Bar Control Center**: Runtime status, diagnostics, settings.
+Sarah operates in three modes, each triggered by a keyboard chord:
 
-## Quick Start (Mode 1 — Zero Config)
+| Mode | Hotkey | What Happens |
+|------|--------|--------------|
+| **Dictation** | Hold trigger key (default: Right Ctrl) | Speak → text appears at cursor in any app |
+| **Command** | Hold trigger key + Shift | Speak → AI agent executes your instruction (open apps, search the web, write to Feishu, etc.) |
+| **Quick Ask** | Hold trigger key + Space | Speak → AI answers your question in an overlay panel |
 
-If you only want **push-to-talk dictation** (Mode 1), you can skip Volcengine and Open Claw entirely. Sarah will use **Apple Speech** (built into macOS 12+) as a local fallback.
+The trigger key is fully customizable: Right Ctrl, Right Alt, CapsLock, Right Cmd, F1–F12, or any custom keycode. Configure it in **Settings → Hotkeys**.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Sarah (Electron)                         │
+├──────────────┬──────────────┬──────────────┬────────────────────┤
+│  Input Layer │  Speech Layer│ Refinement   │  Action Layer      │
+│              │              │  Layer       │                    │
+│  Global      │  Volcengine  │  Ark lite    │  Dictation:        │
+│  hotkeys     │  streaming   │  text clean  │   text insertion   │
+│  (uiohook)   │  ASR (WS)    │  (optional)  │  Command:          │
+│              │              │              │   OpenClaw agent   │
+│  Context     │  Apple Speech│              │  Quick Ask:        │
+│  capture     │  fallback    │              │   OpenClaw Q&A     │
+│  (screenshot │  (local,     │              │                    │
+│   + app info)│   offline)   │              │                    │
+├──────────────┴──────────────┴──────────────┴────────────────────┤
+│  Config Layer: credential-store (safeStorage) → .env fallback   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Speech-to-Text**: Sarah connects to Volcengine's streaming ASR service via WebSocket. Audio is captured at 16 kHz mono PCM, gzip-compressed, and streamed in real time. If no Volcengine credentials are configured, it automatically falls back to Apple Speech (built into macOS, works offline, zero configuration).
+
+**Refinement**: After transcription, an optional LLM pass (Volcengine Ark) cleans up the text — fixing punctuation, removing filler words, and restructuring for clarity. This is transparent to the user.
+
+**Agent Execution**: In Command and Quick Ask modes, the transcribed text is handed to [OpenClaw](https://github.com/openclaw), an external AI agent runtime. Sarah spawns it as a subprocess with rich context (current app, window title, screenshot, URL) so the agent can make informed decisions. OpenClaw has access to skills like `web-browser` (CDP-based web scraping with login state), `lark-doc`, `lark-im`, and others.
+
+**Context Capture**: When you press the hotkey for Command mode, Sarah captures a screenshot and metadata of your current app *before* its own window appears. This means the agent sees what you were looking at, not the Sarah interface.
+
+## Quick Start (Zero Config)
+
+**No registration, no API keys, no Chinese phone number.** Sarah uses Apple Speech for voice recognition out of the box.
+
+### Prerequisites
+
+- **macOS 12** or later
+- **Node.js 18+** (for building; not needed at runtime after install)
+- **pnpm** (`npm install -g pnpm`)
+
+### Development Mode
 
 ```bash
 git clone https://github.com/DHLbigmonster/sarah-desk.git
 cd sarah-desk
-npm install
-npm start
+pnpm install
+pnpm start
 ```
 
-Grant **Microphone**, **Input Monitoring**, and **Accessibility** permissions when prompted. Hold Right Option, speak, release — text appears at the cursor.
+On first launch, macOS will prompt you to grant three permissions:
 
-> Note: Apple Speech is local and offline, but may be less accurate than Volcengine ASR for complex Chinese speech. For best results, configure Volcengine (see below).
+1. **Microphone** — voice capture
+2. **Input Monitoring** — global keyboard hooks (push-to-talk hotkeys)
+3. **Accessibility** — text insertion into other apps
 
-## Prerequisites
+Grant all three. Hold **Right Ctrl**, speak, release — text appears at your cursor.
 
-| Requirement | Why |
-|-------------|-----|
-| **macOS 12+** | Electron + native APIs |
-| **Node.js 18+** | Build toolchain |
-| **Volcengine ASR credentials** | Speech-to-text for voice input (optional for Mode 1) |
-| **Open Claw CLI** | Agent backend for Mode 2/3 (not needed for Mode 1) |
-| **macOS permissions** | Microphone, Input Monitoring, Accessibility (see below) |
+### Building a Standalone App
 
-## Getting Volcengine Credentials (Recommended)
-
-Volcengine ASR provides higher accuracy than the Apple Speech fallback, especially for Chinese. Follow these steps:
-
-### Step 1: Register a Volcengine Account
-
-1. Go to [volcengine.com](https://www.volcengine.com/) and click **注册** (Register)
-2. Complete phone/email verification
-3. Log in to the Volcengine Console
-
-### Step 2: Enable Speech Recognition Service
-
-1. In the console, navigate to **全部产品 → 语音技术** (or search "语音技术")
-2. Click **流式语音识别大模型** (Streaming Large Model Speech Recognition)
-3. Click **立即开通** (Enable Now) — this is free for the basic tier
-
-### Step 3: Create an Application
-
-1. On the 流式语音识别大模型 page, click **创建应用** (Create Application)
-2. Fill in:
-   - **应用名称** (App Name): anything, e.g. "Sarah"
-   - **描述** (Description): optional
-3. Click **确定** (Confirm)
-4. Note the **APP ID** displayed on the application list (e.g., `4120356295`)
-
-### Step 4: Get Access Token
-
-1. Click on your newly created application to enter its detail page
-2. Click the **眼睛 icon** (eye icon) next to **Access Token** to reveal it
-3. Copy and save the Access Token
-
-### Step 5: Note the Resource ID
-
-The default Resource ID is `volc.bigasr.sauc.duration`. You generally don't need to change this unless you want a different model tier.
-
-### Step 6 (Optional): Configure Hot Word Table
-
-If you have domain-specific terms (e.g., product names), you can create a hot word table in the Volcengine console to improve recognition accuracy.
-
-### Step 7 (Optional): Set Up Text Refinement
-
-For better dictation quality (punctuation, grammar cleanup), configure an Ark model:
-
-1. Go to [火山方舟 (Ark)](https://www.volcengine.com/product/ark)
-2. Create a text generation endpoint (e.g., Doubao Lite)
-3. Note your **API Key** and **Endpoint ID**
-
-### Enter Credentials in Sarah
-
-You can either:
-- **Via Settings UI**: Open Sarah Settings → Models → click the voice provider card → fill in APP_ID and ACCESS_TOKEN → Save
-- **Via .env file**: Copy `.env.example` to `.env` and fill in the values
-
-## Installing Open Claw (For Mode 2/3 Only)
-
-Sarah depends on the `openclaw` CLI for AI agent capabilities (Mode 2 voice agent, Mode 3 screenshot agent). **Mode 1 (dictation) works without Open Claw.**
-
-### What is Open Claw?
-
-Open Claw is a CLI-based AI agent runtime. Sarah spawns it as a subprocess to handle voice commands and screenshot-based workflows.
-
-### Installation
+To build and install Sarah as a standalone macOS app:
 
 ```bash
-# Install via Homebrew (recommended)
-brew install openclaw
-
-# Or install via npm
-npm install -g openclaw
+pnpm run install:app
 ```
 
-### Verify Installation
+This command:
+1. Packages the Electron app into `out/Sarah-darwin-arm64/Sarah.app`
+2. Copies it to `~/Applications/Sarah.app`
+3. Signs it with your Apple Development certificate (TCC permissions persist across reinstalls)
+4. Cleans up the build output to prevent duplicate Dock icons
 
-```bash
-which openclaw
-openclaw --version
-```
+After installation, launch Sarah from your Applications folder or Spotlight. The development server is no longer needed.
 
-### Authenticate
+> **Note**: `pnpm run install:app` is the only supported install path. Running `pnpm run package` alone produces an unsigned app in `out/` — it will not have proper permissions and will lose TCC grants on every launch.
 
-```bash
-openclaw login
-```
+### Download a Pre-built Release
 
-Follow the prompts to authenticate. This is required for Mode 2/3 to work.
-
-### Troubleshooting
-
-**`openclaw` not found after install:**
-- Ensure Homebrew's bin directory is on your PATH: `export PATH="/opt/homebrew/bin:$PATH"`
-- Or run `which openclaw` to find where it was installed
-
-**Authentication fails:**
-- Run `openclaw login` again and check your credentials
-- Ensure you have an active Open Claw account
+Check the [Releases](https://github.com/DHLbigmonster/sarah-desk/releases) page for pre-built `.dmg` files. Download, drag to Applications, and launch.
 
 ## Configuration
 
-Edit the `.env` file with your credentials:
+### Volcengine ASR (Optional — Better Accuracy)
+
+Volcengine ASR provides significantly better Chinese recognition than Apple Speech. To set it up:
+
+1. **Register** at [volcengine.com](https://www.volcengine.com/)
+2. Navigate to **全部产品 → 语音技术 → 流式语音识别大模型**
+3. Click **立即开通** (free for basic tier)
+4. **Create an application** and note the **APP ID**
+5. Click the eye icon to reveal and copy the **Access Token**
+
+Enter credentials in Sarah via either method:
+
+- **Settings UI**: Open Sarah Settings → Models → click the voice provider card → fill in APP_ID and ACCESS_TOKEN → Save
+- **`.env` file**: Copy `.env.example` to `.env` and fill in the values. Sarah reads from the credential store first, then falls back to `.env`.
+
+### Text Refinement (Optional)
+
+For cleaner dictation output (punctuation, grammar), configure an Ark model:
+
+1. Go to [火山方舟 (Ark)](https://www.volcengine.com/product/ark)
+2. Create a text generation endpoint (e.g., Doubao Lite)
+3. Set `ARK_API_KEY` and `DICTATION_REFINEMENT_ENDPOINT_ID` in Settings or `.env`
+
+### Open Claw (Required for Command / Quick Ask)
+
+Sarah depends on the `openclaw` CLI for AI agent capabilities. **Dictation works without Open Claw.**
 
 ```bash
-# Required: Volcengine ASR (speech-to-text)
-VOLCENGINE_APP_ID=your_app_id
-VOLCENGINE_ACCESS_TOKEN=your_access_token
+# Install
+brew install openclaw
+# or
+npm install -g openclaw
 
-# Optional: Text refinement model (improves dictation quality)
-ARK_API_KEY=your_ark_api_key
-DICTATION_REFINEMENT_ENDPOINT_ID=ep-xxxxxxxxxxxxxxxx
+# Authenticate
+openclaw login
 
-# Optional: Hotkey customization
-AGENT_VOICE_KEY=CtrlRight          # Key for Mode 2 (voice agent)
-AGENT_HOTKEY=CommandOrControl+Shift+Space  # Key for Mode 3 (screenshot agent)
+# Verify
+openclaw --version
 ```
 
-See `.env.example` for the full list of options including proxy settings, hot word tables, and refinement parameters.
+See the [Open Claw documentation](https://github.com/openclaw) for details.
 
 ## macOS Permissions
 
-Sarah requires three macOS permissions. You will be prompted automatically on first launch:
+| Permission | Purpose | Grant via |
+|------------|---------|-----------|
+| **Microphone** | Voice capture | System Settings → Privacy & Security → Microphone |
+| **Input Monitoring** | Global keyboard hooks | System Settings → Privacy & Security → Input Monitoring |
+| **Accessibility** | Text insertion into other apps | System Settings → Privacy & Security → Accessibility |
 
-| Permission | What it's for | How to grant |
-|------------|--------------|--------------|
-| **Microphone** | Voice capture | System Settings → Privacy & Security → Microphone → enable Sarah |
-| **Input Monitoring** | Global keyboard hooks (push-to-talk hotkeys) | System Settings → Privacy & Security → Input Monitoring → enable Sarah |
-| **Accessibility** | Text insertion into other apps | System Settings → Privacy & Security → Accessibility → enable Sarah |
+Sarah shows a notification if any permission is missing. Click it to open System Settings directly.
 
-> If permissions are missing, Sarah will show a notification. Click it to open System Settings directly.
-
-## Development
-
-```bash
-npm start              # Launch in development mode
-npm run typecheck      # Type checking
-npm run lint           # Linting
-npm test               # Run tests
-```
-
-## Package and Install
-
-```bash
-npm run install:app
-```
-
-This builds and installs the app to:
-
-```
-~/Applications/Sarah.app
-```
-
-Bundle identifier: `com.sarah.app`
-
-After installing a new bundle, macOS may require fresh permissions for microphone, input monitoring, and accessibility.
-
-## Verification
-
-```bash
-npm run verify:mini
-```
-
-Checks source wiring, packaged app contents, native modules, and runs a packaged smoke test.
+With stable Apple Development signing, permissions persist across reinstalls. The first install after switching signing identities requires a one-time re-grant.
 
 ## Project Structure
 
 ```
-src/main/                  Electron main process, services, IPC, windows
-src/renderer/mini-settings Mini control center renderer
-src/renderer/src/modules   Floating HUD and answer overlay renderers
-src/shared                 Shared IPC constants and types
-scripts/                   Packaging, launch, and integration verification scripts
+src/main/                        Electron main process
+  services/agent/                OpenClaw agent integration
+  services/asr/                  Speech-to-text (Volcengine + Apple Speech)
+  services/config/               Credential store, config resolution
+  services/keyboard/             Global hotkey handling (uiohook)
+  services/push-to-talk/         Voice mode state machine
+  services/text-input/           Cursor text insertion
+  windows/                       Window managers (floating HUD, agent overlay, settings)
+src/renderer/
+  mini-settings/                 Menu bar control center
+  clawdesk/pages/settings/       Full settings UI
+  src/modules/agent/             Agent overlay panel
+  src/modules/asr/               Floating voice HUD
+src/shared/                      IPC constants and type definitions
+scripts/                         Packaging, install, verification scripts
 ```
 
-## How It Works
+## Development
 
-```
-┌──────────────┐    voice     ┌──────────────┐    spawn     ┌──────────────┐
-│   Microphone │ ──────────→ │  Volcengine  │ ──────────→ │   Sarah      │
-│   (input)    │             │  ASR (STT)   │             │  (Electron)  │
-└──────────────┘             └──────────────┘             └──────┬───────┘
-                                                                 │
-                                              ┌──────────────────┼──────────────────┐
-                                              │                  │                  │
-                                         Mode 1            Mode 2             Mode 3
-                                     insert text     ┌──────────────┐    screenshot +
-                                                     │  Open Claw   │    agent panel
-                                                     │  CLI agent   │
-                                                     └──────────────┘
+```bash
+pnpm start              # Launch in dev mode (hot reload)
+pnpm typecheck          # Type checking
+pnpm lint               # Linting
+pnpm test               # Run tests
 ```
 
-**ASR Backend**: Sarah connects to Volcengine's streaming ASR service via WebSocket (`wss://openspeech.bytedance.com/api/v3/sauc/bigmodel`). Audio is captured at 16kHz mono PCM, gzip-compressed, and streamed in real-time. If Volcengine credentials are not configured, Mode 1 falls back to Apple Speech (local, offline).
+### Verification
+
+```bash
+pnpm run package        # Build the packaged app
+pnpm verify:mini        # Smoke test the packaged app
+```
+
+Checks source wiring, packaged app contents, native modules, and runs a packaged smoke test. Run verification after `pnpm run package` and before `pnpm run install:app` (install removes the build output).
 
 ## Troubleshooting
 
-**"openclaw CLI 未找到"**
-→ Install Open Claw and ensure `openclaw` is on your PATH. Run `which openclaw` to verify.
+| Problem | Solution |
+|---------|----------|
+| **"openclaw CLI 未找到"** | Install Open Claw and ensure `openclaw` is on your PATH. Run `which openclaw` to verify. |
+| **"OpenClaw 未登录或鉴权失败"** | Run `openclaw login` in your terminal. |
+| **No audio / ASR errors** | Check `VOLCENGINE_APP_ID` and `VOLCENGINE_ACCESS_TOKEN` in Settings or `.env`. |
+| **Hotkeys not working** | Grant Accessibility + Input Monitoring in System Settings. Change trigger key in Settings → Hotkeys. |
+| **Text not inserting** | Grant Accessibility permission. |
+| **Dictation not working without config** | Grant Microphone permission. Apple Speech is used as fallback. |
 
-**"OpenClaw 未登录或鉴权失败"**
-→ Run `openclaw login` in your terminal to authenticate.
+## CI/CD
 
-**No audio / ASR errors**
-→ Check your `VOLCENGINE_APP_ID` and `VOLCENGINE_ACCESS_TOKEN` in `.env` or Settings UI. Verify your Volcengine account is active.
+- **`ci.yml`**: Runs on PR/push to main — typecheck, lint, test, verify:mini
+- **`release.yml`**: Runs on tag push (`v*`) — builds macOS arm64 DMG + ZIP, creates draft GitHub Release
 
-**Hotkeys not working**
-→ Ensure Input Monitoring permission is granted in System Settings → Privacy & Security.
+To create a release:
 
-**Text not inserting**
-→ Ensure Accessibility permission is granted. Sarah uses native APIs to insert text into the focused app.
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
 
-**Mode 1 not working without configuration**
-→ Ensure Microphone permission is granted. Sarah uses Apple Speech as a local fallback when Volcengine is not configured.
+GitHub Actions will build and create a draft release. Review and publish it from the [Releases](https://github.com/DHLbigmonster/sarah-desk/releases) page.
 
 ## License
 
