@@ -90,10 +90,6 @@ After installation, launch Sarah from your Applications folder or Spotlight. The
 
 > **Note**: `pnpm run install:app` is the only supported install path. Running `pnpm run package` alone produces an unsigned app in `out/` — it will not have proper permissions and will lose TCC grants on every launch.
 
-### Download a Pre-built Release
-
-Check the [Releases](https://github.com/DHLbigmonster/sarah-desk/releases) page for pre-built `.dmg` files. Download, drag to Applications, and launch.
-
 ## Configuration
 
 ### Volcengine ASR (Optional — Better Accuracy)
