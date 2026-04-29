@@ -108,3 +108,6 @@ dist/
 
 # AI agent workspace (machine-specific, not for OSS)
 .trellis/
+
+# Compiled Apple Speech helper binary (built from scripts/apple-speech-helper.swift)
+scripts/apple-speech-helper

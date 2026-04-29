@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint & Typecheck
+        run: |
+          pnpm lint
+          pnpm typecheck
+
+      - name: Build
+        run: pnpm exec electron-forge make --arch arm64,x64
+        env:
+          # Skip code signing for open-source releases
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist-release
+          cp out/make/zip/darwin/**/*.zip dist-release/ 2>/dev/null || true
+          cp out/make/**/*.dmg dist-release/ 2>/dev/null || true
+          # Fallback: grab everything from out/make
+          find out/make -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.deb" \) -exec cp {} dist-release/ \;
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist-release/*
+          generate_release_notes: true
+          draft: true
