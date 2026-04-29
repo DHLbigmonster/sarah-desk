@@ -296,12 +296,13 @@ export class VoiceModeManager {
     }
     this.lastStartTime = now;
     logger.info('VoiceModeManager: START command');
+
+    // Capture context BEFORE showing overlay, so we get the user's actual
+    // frontmost app (not our own CodePilot window that appears on overlay).
+    try { this.pendingContext = await contextCaptureService.capture(); } catch { this.pendingContext = null; }
+
     this.state = 'command_recording';
     this.publishOverlayState('command', 'recording');
-
-    // Capture context BEFORE the agent window appears, so we get the
-    // user's actual frontmost app (not our own window).
-    try { this.pendingContext = await contextCaptureService.capture(); } catch { this.pendingContext = null; }
 
     try {
       await asrService.start();

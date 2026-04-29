@@ -135,9 +135,9 @@ For cleaner dictation output (punctuation, grammar), configure an Ark model:
 2. Create a text generation endpoint (e.g., Doubao Lite)
 3. Set `ARK_API_KEY` and `DICTATION_REFINEMENT_ENDPOINT_ID` in Settings or `.env`
 
-### Open Claw (Required for Command / Quick Ask)
+### OpenClaw (Required for Command / Quick Ask)
 
-Sarah depends on the `openclaw` CLI for AI agent capabilities. **Dictation works without Open Claw.**
+Sarah depends on the `openclaw` CLI for AI agent capabilities. **Dictation works without OpenClaw.**
 
 ```bash
 # Install
@@ -152,7 +152,7 @@ openclaw login
 openclaw --version
 ```
 
-See the [Open Claw documentation](https://github.com/openclaw) for details.
+See the [OpenClaw documentation](https://github.com/openclaw) for details.
 
 ## macOS Permissions
 
@@ -208,7 +208,7 @@ Checks source wiring, packaged app contents, native modules, and runs a packaged
 
 | Problem | Solution |
 |---------|----------|
-| **"openclaw CLI 未找到"** | Install Open Claw and ensure `openclaw` is on your PATH. Run `which openclaw` to verify. |
+| **"openclaw CLI 未找到"** | Install OpenClaw and ensure `openclaw` is on your PATH. Run `which openclaw` to verify. |
 | **"OpenClaw 未登录或鉴权失败"** | Run `openclaw login` in your terminal. |
 | **No audio / ASR errors** | Check `VOLCENGINE_APP_ID` and `VOLCENGINE_ACCESS_TOKEN` in Settings or `.env`. |
 | **Hotkeys not working** | Grant Accessibility + Input Monitoring in System Settings. Change trigger key in Settings → Hotkeys. |

@@ -372,9 +372,9 @@ export class AgentService extends EventEmitter {
       contextLimitations.push(
         '- 当用户说”当前页/这个页面/这篇文章”等指代式说法时，你没有任何页面内容。请明确告诉用户：需要他粘贴 URL 或正文，否则你无法处理。',
       );
-    } else if (!hasUrl) {
+    } else if (!hasUrl && hasScreenshot) {
       contextLimitations.push(
-        '- 当前应用不是浏览器，没有抽到 URL。如果用户说”当前页面”，只能基于截图分析；如果用户说”去 XX 网站搜索”，可以直接用 web-access 打开浏览器操作。',
+        '- 当前没有 URL，但有截图可用。用户说”当前页面/这个页面”时，直接分析截图内容来完成任务。不要要求用户提供 URL。',
       );
     }
     const limitationsBlock = contextLimitations.length
@@ -404,13 +404,14 @@ export class AgentService extends EventEmitter {
 ═══ 场景决策树 ═══
 1. “保存/记录到飞书”类指令：
    - 应用名包含 Lark/Feishu/飞书 → 直接用 lark-doc 或 lark-im
-   - 应用名是浏览器 → web-access 抽取当前页面 → lark-doc/lark-im 写入
-   - 其他应用（微信、备忘录等）→ 截图分析 → 提取文字 → 写入飞书
+   - 应用名是浏览器（Chrome/Safari/Edge）→ web-access 抽取当前页面 → lark-doc/lark-im 写入
+   - 其他任何应用（CodePilot、微信、备忘录等）→ 直接分析截图内容 → 提取文字 → 写入飞书
 2. “去 XX 网站搜索/看看/找一下”类指令：
    - 不管当前在什么应用，直接用 web-access 打开浏览器操作
    - web-access 通过 CDP 连接用户已打开的 Chrome，保留登录态（X、GitHub 等无需重新登录）
 3. web-access 抽取时，优先使用「当前屏幕上下文」中的 URL
-4. 只有当既没有 URL 也没有截图时，才要求用户提供内容
+4. 有截图但没有 URL 时 → 分析截图内容，不要要求用户提供 URL
+5. 只有当既没有 URL 也没有截图时，才要求用户提供内容
 
 ═══ 链式调用示例 ═══
 - “把这个网页内容加到飞书多维表格”（当前在 Chrome）：web-access 抽取 → feishu-bitable 写入
@@ -420,6 +421,13 @@ export class AgentService extends EventEmitter {
 - “总结这篇文章并发到飞书群”：web-access 抽取 → 总结 → lark-im 发送
 - “把这条飞书消息转成文档”（当前在飞书）：直接用 lark-doc 创建 → 写入内容
 - “创建飞书文档记录这次讨论”：feishu-create-doc 创建 → 写入内容
+- “把当前页面记录到飞书”（当前在 CodePilot/任意非浏览器应用）→ 分析截图内容 → 提取文字 → lark-doc 创建文档
+
+═══ 特殊情况：appName 是 CodePilot ═══
+当「应用」显示为 CodePilot 时，说明用户在 CodePilot 界面内按下了热键。
+截图捕获的是用户按下热键那一刻的屏幕内容（可能是 CodePilot 下方的其他窗口）。
+- 如果有截图 → 直接分析截图中的可见内容来完成任务
+- 不要因为 appName 是 CodePilot 就拒绝执行或要求用户提供 URL
 
 ═══ 工具路径 ═══
 ${larkNote}
