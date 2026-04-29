@@ -145,77 +145,84 @@ contains('src/main.ts', '../renderer/${MAIN_WINDOW_VITE_NAME}/index.html', 'pack
 contains('src/main/windows/mini-settings.ts', 'MINI_SETTINGS_WINDOW_VITE_DEV_SERVER_URL', 'dev server mini settings path');
 contains('src/main/windows/mini-settings.ts', '../renderer/${MINI_SETTINGS_WINDOW_VITE_NAME}/mini-settings.html', 'packaged mini settings path');
 
-section('Packaged app checks');
+const isCI = process.env.CI === 'true';
 
-const appPath = path.join(root, 'out/Sarah-darwin-arm64/Sarah.app');
-const appAsarPath = path.join(appPath, 'Contents/Resources/app.asar');
-const appExePath = path.join(appPath, 'Contents/MacOS/Sarah');
-const appExists = fs.existsSync(appPath);
-add('packaged:app-exists', appExists, appExists ? rel(appPath) : 'missing packaged .app; run npm run package');
-
-if (fs.existsSync(appAsarPath)) {
-  try {
-    const list = asarList(appAsarPath);
-    [
-      '/.vite/build/main.js',
-      '/.vite/build/preload.js',
-      '/.vite/renderer/main_window/index.html',
-      '/.vite/renderer/floating_window/floating.html',
-      '/.vite/renderer/mini_settings_window/mini-settings.html',
-    ].forEach((entry) => {
-      add(`packaged:${entry}`, list.includes(entry), list.includes(entry) ? 'present in app.asar' : 'missing from app.asar');
-    });
-
-    const extractedDir = extractAsarToTemp(appAsarPath);
-    const mainBundle = readIfExists(path.join(extractedDir, '.vite/build/main.js'));
-    const preloadBundle = readIfExists(path.join(extractedDir, '.vite/build/preload.js'));
-    const recorderBundleNames = list
-      .split('\n')
-      .filter((line) => line.includes('/.vite/renderer/main_window/assets/') && line.endsWith('.js'));
-    const recorderBundle = recorderBundleNames[0]
-      ? readIfExists(path.join(extractedDir, recorderBundleNames[0].replace(/^\//, '')))
-      : '';
-
-    add('packaged:string:asr-send-audio', (mainBundle + preloadBundle + recorderBundle).includes('asr:send-audio'), 'asr:send-audio string search in bundles');
-    add('packaged:string:recorder-ready', (mainBundle + preloadBundle + recorderBundle).includes('recorder:ready'), 'recorder:ready string search in bundles');
-    add('packaged:string:recorder-ping', (mainBundle + preloadBundle + recorderBundle).includes('recorder:ping'), 'recorder:ping string search in bundles');
-  } catch (error) {
-    add('packaged:asar-readable', false, error instanceof Error ? error.message : String(error));
-  }
+if (isCI) {
+  section('Packaged app checks (skipped in CI)');
+  add('packaged:skipped', true, 'skipped — CI does not run npm run package');
 } else {
-  add('packaged:app.asar-exists', false, `missing ${rel(appAsarPath)}`);
-}
+  section('Packaged app checks');
 
-const unpackedNativeRoot = path.join(appPath, 'Contents/Resources/app.asar.unpacked/node_modules');
-add('packaged:native:uiohook', fs.existsSync(path.join(unpackedNativeRoot, 'uiohook-napi')), 'uiohook-napi unpacked module');
-add('packaged:native:text-insert', fs.existsSync(path.join(unpackedNativeRoot, '@xitanggg/node-insert-text-darwin-arm64')), 'node-insert-text unpacked module');
+  const appPath = path.join(root, 'out/Sarah-darwin-arm64/Sarah.app');
+  const appAsarPath = path.join(appPath, 'Contents/Resources/app.asar');
+  const appExePath = path.join(appPath, 'Contents/MacOS/Sarah');
+  const appExists = fs.existsSync(appPath);
+  add('packaged:app-exists', appExists, appExists ? rel(appPath) : 'missing packaged .app; run npm run package');
 
-section('Packaged smoke test');
+  if (fs.existsSync(appAsarPath)) {
+    try {
+      const list = asarList(appAsarPath);
+      [
+        '/.vite/build/main.js',
+        '/.vite/build/preload.js',
+        '/.vite/renderer/main_window/index.html',
+        '/.vite/renderer/floating_window/floating.html',
+        '/.vite/renderer/mini_settings_window/mini-settings.html',
+      ].forEach((entry) => {
+        add(`packaged:${entry}`, list.includes(entry), list.includes(entry) ? 'present in app.asar' : 'missing from app.asar');
+      });
 
-if (fs.existsSync(appExePath)) {
-  try {
-    const output = execFileSync(appExePath, [], {
-      cwd: root,
-      encoding: 'utf8',
-      timeout: 20000,
-      env: { ...process.env, SARAH_SMOKE_TEST: '1' },
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    const marker = output.match(/MINI_SMOKE_TEST_RESULTS (.+)/);
-    if (!marker) {
-      add('smoke:marker', false, 'packaged app exited without MINI_SMOKE_TEST_RESULTS');
-    } else {
-      const smokeResults = JSON.parse(marker[1]);
-      for (const result of smokeResults) {
-        add(`smoke:${result.name}`, Boolean(result.success), result.detail);
-      }
+      const extractedDir = extractAsarToTemp(appAsarPath);
+      const mainBundle = readIfExists(path.join(extractedDir, '.vite/build/main.js'));
+      const preloadBundle = readIfExists(path.join(extractedDir, '.vite/build/preload.js'));
+      const recorderBundleNames = list
+        .split('\n')
+        .filter((line) => line.includes('/.vite/renderer/main_window/assets/') && line.endsWith('.js'));
+      const recorderBundle = recorderBundleNames[0]
+        ? readIfExists(path.join(extractedDir, recorderBundleNames[0].replace(/^\//, '')))
+        : '';
+
+      add('packaged:string:asr-send-audio', (mainBundle + preloadBundle + recorderBundle).includes('asr:send-audio'), 'asr:send-audio string search in bundles');
+      add('packaged:string:recorder-ready', (mainBundle + preloadBundle + recorderBundle).includes('recorder:ready'), 'recorder:ready string search in bundles');
+      add('packaged:string:recorder-ping', (mainBundle + preloadBundle + recorderBundle).includes('recorder:ping'), 'recorder:ping string search in bundles');
+    } catch (error) {
+      add('packaged:asar-readable', false, error instanceof Error ? error.message : String(error));
     }
-  } catch (error) {
-    add('smoke:packaged-app', false, error instanceof Error ? error.message : String(error));
+  } else {
+    add('packaged:app.asar-exists', false, `missing ${rel(appAsarPath)}`);
   }
-} else {
-  add('smoke:packaged-app', false, `missing executable ${rel(appExePath)}`);
-}
+
+  const unpackedNativeRoot = path.join(appPath, 'Contents/Resources/app.asar.unpacked/node_modules');
+  add('packaged:native:uiohook', fs.existsSync(path.join(unpackedNativeRoot, 'uiohook-napi')), 'uiohook-napi unpacked module');
+  add('packaged:native:text-insert', fs.existsSync(path.join(unpackedNativeRoot, '@xitanggg/node-insert-text-darwin-arm64')), 'node-insert-text unpacked module');
+
+  section('Packaged smoke test');
+
+  if (fs.existsSync(appExePath)) {
+    try {
+      const output = execFileSync(appExePath, [], {
+        cwd: root,
+        encoding: 'utf8',
+        timeout: 20000,
+        env: { ...process.env, SARAH_SMOKE_TEST: '1' },
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      const marker = output.match(/MINI_SMOKE_TEST_RESULTS (.+)/);
+      if (!marker) {
+        add('smoke:marker', false, 'packaged app exited without MINI_SMOKE_TEST_RESULTS');
+      } else {
+        const smokeResults = JSON.parse(marker[1]);
+        for (const result of smokeResults) {
+          add(`smoke:${result.name}`, Boolean(result.success), result.detail);
+        }
+      }
+    } catch (error) {
+      add('smoke:packaged-app', false, error instanceof Error ? error.message : String(error));
+    }
+  } else {
+    add('smoke:packaged-app', false, `missing executable ${rel(appExePath)}`);
+  }
+} // end if (!isCI)
 
 section('Summary');
 
