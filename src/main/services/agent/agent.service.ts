@@ -364,23 +364,17 @@ export class AgentService extends EventEmitter {
       .join('\n');
 
     // Tell the agent honestly what page-level context is available, so it
-    // does not invent a "current page content" it never received.
+    // does not invent a “current page content” it never received.
     const hasUrl = !!context.url;
     const hasScreenshot = !!context.screenshotPath;
     const contextLimitations: string[] = [];
-    if (!hasUrl) {
-      contextLimitations.push(
-        '- 当前应用不是浏览器（或未识别），没有抽到 URL，因此 web-access 没有可访问的链接。',
-      );
-    }
-    if (!hasScreenshot) {
-      contextLimitations.push(
-        '- 没有屏幕截图（缺屏幕录制权限或截图失败），无法基于截图分析页面。',
-      );
-    }
     if (!hasUrl && !hasScreenshot) {
       contextLimitations.push(
-        '- 当用户说”当前页/这个页面/这篇文章“等指代式说法时，你没有任何页面正文。请明确告诉用户：需要他粘贴 URL 或正文，否则你无法处理。',
+        '- 当用户说”当前页/这个页面/这篇文章”等指代式说法时，你没有任何页面内容。请明确告诉用户：需要他粘贴 URL 或正文，否则你无法处理。',
+      );
+    } else if (!hasUrl) {
+      contextLimitations.push(
+        '- 当前应用不是浏览器，没有抽到 URL。如果用户说”当前页面”，只能基于截图分析；如果用户说”去 XX 网站搜索”，可以直接用 web-access 打开浏览器操作。',
       );
     }
     const limitationsBlock = contextLimitations.length
@@ -395,18 +389,37 @@ export class AgentService extends EventEmitter {
 - Read / Write：本地文件读写
 
 ═══ 已就绪 Skills（按触发场景使用，组合调用） ═══
-- web-access：访问、解析、抽取网页内容（用户提到”这个网页/这篇文章/这个链接“时优先用）
-- agent-browser：需要登录态或交互式浏览时使用
-- lark-base / feishu-bitable：飞书多维表格读写（”加到飞书表格 / 多维表格 / bitable“）
+- web-access：通过 CDP 连接用户正在运行的 Chrome 浏览器，可访问已登录的网站（X/Twitter、GitHub、小红书等）。触发场景：
+  • 用户提到”这个网页/这篇文章/这个链接/当前页面”时优先用
+  • 用户说”保存到飞书/记录到飞书”且当前应用是浏览器时，先用 web-access 抽取当前页面内容
+  • 用户说”去 XX 网站搜索/看看/找一下”——无论当前在什么应用，都可以用 web-access 打开浏览器操作
+  • 注意：如果当前应用是飞书（appName 包含 “Lark” 或 “Feishu”），不需要 web-access，直接用 lark-doc/lark-im 等工具
+- agent-browser：需要复杂交互式浏览时使用（web-access 无法完成时升级使用）
+- lark-base / feishu-bitable：飞书多维表格读写（”加到飞书表格 / 多维表格 / bitable”）
 - lark-doc / feishu-create-doc / feishu-fetch-doc：飞书文档创建与读取
 - lark-im：飞书 IM 发消息
 - lark-task：飞书任务
 - lark-sheets：飞书电子表格
 
+═══ 场景决策树 ═══
+1. “保存/记录到飞书”类指令：
+   - 应用名包含 Lark/Feishu/飞书 → 直接用 lark-doc 或 lark-im
+   - 应用名是浏览器 → web-access 抽取当前页面 → lark-doc/lark-im 写入
+   - 其他应用（微信、备忘录等）→ 截图分析 → 提取文字 → 写入飞书
+2. “去 XX 网站搜索/看看/找一下”类指令：
+   - 不管当前在什么应用，直接用 web-access 打开浏览器操作
+   - web-access 通过 CDP 连接用户已打开的 Chrome，保留登录态（X、GitHub 等无需重新登录）
+3. web-access 抽取时，优先使用「当前屏幕上下文」中的 URL
+4. 只有当既没有 URL 也没有截图时，才要求用户提供内容
+
 ═══ 链式调用示例 ═══
-- ”把这个网页内容加到飞书多维表格“：web-access 抽取 → feishu-bitable 写入
-- ”总结这篇文章并发到飞书群“：web-access 抽取 → 总结 → lark-im 发送
-- ”创建飞书文档记录这次讨论“：feishu-create-doc 创建 → 写入内容
+- “把这个网页内容加到飞书多维表格”（当前在 Chrome）：web-access 抽取 → feishu-bitable 写入
+- “保存当前页面到飞书文档”（当前在 Safari）：web-access 抽取 → lark-doc 创建文档
+- “去 X 上搜一下最新的 AI 动态”：web-access 打开 X → 搜索 → 抽取结果
+- “去 GitHub 看看这个项目的 issues”：web-access 打开 GitHub → 浏览 → 抽取内容
+- “总结这篇文章并发到飞书群”：web-access 抽取 → 总结 → lark-im 发送
+- “把这条飞书消息转成文档”（当前在飞书）：直接用 lark-doc 创建 → 写入内容
+- “创建飞书文档记录这次讨论”：feishu-create-doc 创建 → 写入内容
 
 ═══ 工具路径 ═══
 ${larkNote}
@@ -423,7 +436,8 @@ ${recentActionsStr}
 ═══ 任务 ═══
 ${instruction}
 
-注意：回复使用中文，简洁直接。能用 skill 就别手写 shell；多步任务先列计划再执行；完成后给一句话总结。`;
+注意：回复使用中文，简洁直接。能用 skill 就别手写 shell；多步任务先列计划再执行；完成后给一句话总结。
+关键：根据「当前屏幕上下文」自动判断当前应用类型，选择最合适的 skill。不要假设用户在什么应用里——看上下文里的「应用」字段。`;
   }
 
   private async emitVisibleText(runVersion: number, text: string): Promise<void> {

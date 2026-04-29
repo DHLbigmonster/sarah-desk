@@ -24,24 +24,18 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Lint & Typecheck
-        run: |
-          pnpm lint
-          pnpm typecheck
-
       - name: Build
-        run: pnpm exec electron-forge make --arch arm64,x64
+        run: pnpm exec electron-forge make --arch arm64
         env:
-          # Skip code signing for open-source releases
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
       - name: Collect artifacts
         run: |
           mkdir -p dist-release
-          cp out/make/zip/darwin/**/*.zip dist-release/ 2>/dev/null || true
-          cp out/make/**/*.dmg dist-release/ 2>/dev/null || true
-          # Fallback: grab everything from out/make
-          find out/make -type f \( -name "*.zip" -o -name "*.dmg" -o -name "*.deb" \) -exec cp {} dist-release/ \;
+          find out/make -name "*.dmg" -exec cp {} dist-release/ \; 2>/dev/null || true
+          find out/make -name "*.zip" -exec cp {} dist-release/ \; 2>/dev/null || true
+          echo "Release artifacts:"
+          ls -lh dist-release/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -87,15 +87,46 @@ export interface ClawDeskSettingsOverview {
 
 // ── Hotkey customization ──────────────────────────────────────────────────────
 
-export type VoiceTriggerKey = 'CtrlRight' | 'AltRight';
+export type VoiceTriggerKey =
+  | 'CtrlRight'
+  | 'AltRight'
+  | 'CapsLock'
+  | 'MetaRight'
+  | 'F1' | 'F2' | 'F3' | 'F4' | 'F5' | 'F6'
+  | 'F7' | 'F8' | 'F9' | 'F10' | 'F11' | 'F12'
+  | 'custom';
 
 export const VOICE_TRIGGER_KEY_LABELS: Record<VoiceTriggerKey, string> = {
   CtrlRight: 'Right Ctrl',
   AltRight: 'Right Alt (Option)',
+  CapsLock: 'Caps Lock',
+  MetaRight: 'Right Cmd',
+  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
+  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+  custom: '自定义…',
 };
+
+/** Maps VoiceTriggerKey to the uiohook-napi keycode used for registration. */
+export const VOICE_TRIGGER_KEY_UIOHOOK_MAP: Record<Exclude<VoiceTriggerKey, 'custom'>, number> = {
+  CtrlRight: 3613,
+  AltRight: 3640,
+  CapsLock: 58,
+  MetaRight: 3676,
+  F1: 59, F2: 60, F3: 61, F4: 62, F5: 63, F6: 64,
+  F7: 65, F8: 66, F9: 67, F10: 68, F11: 87, F12: 88,
+};
+
+/** Keys safe for the fixed-list picker (no conflict with normal typing). */
+export const SAFE_TRIGGER_KEYS: VoiceTriggerKey[] = [
+  'CtrlRight', 'AltRight', 'CapsLock', 'MetaRight',
+  'F1', 'F2', 'F3', 'F4', 'F5', 'F6',
+  'F7', 'F8', 'F9', 'F10', 'F11', 'F12',
+];
 
 export interface HotkeyConfig {
   voiceTriggerKey: VoiceTriggerKey;
+  /** Uiohook keycode when voiceTriggerKey is 'custom'. Ignored otherwise. */
+  customKeycode?: number;
   toggleWindow: string; // Electron Accelerator, e.g. 'CommandOrControl+Shift+Space'
 }
 
@@ -112,4 +143,20 @@ export interface HotkeyConflict {
 export interface HotkeyCheckResult {
   conflicts: HotkeyConflict[];
   isValid: boolean;
+}
+
+/** Resolve the uiohook keycode from a HotkeyConfig. */
+export function resolveTriggerKeycode(config: HotkeyConfig): number {
+  if (config.voiceTriggerKey === 'custom') {
+    return config.customKeycode ?? VOICE_TRIGGER_KEY_UIOHOOK_MAP.CtrlRight;
+  }
+  return VOICE_TRIGGER_KEY_UIOHOOK_MAP[config.voiceTriggerKey];
+}
+
+/** Get a human-readable label for the current trigger key config. */
+export function getTriggerKeyLabel(config: HotkeyConfig): string {
+  if (config.voiceTriggerKey === 'custom') {
+    return `Custom (keycode ${config.customKeycode})`;
+  }
+  return VOICE_TRIGGER_KEY_LABELS[config.voiceTriggerKey];
 }

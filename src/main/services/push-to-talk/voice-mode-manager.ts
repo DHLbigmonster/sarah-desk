@@ -32,6 +32,8 @@ import { dictationRefinementService } from '../agent';
 import { contextCaptureService } from '../agent/context-capture.service';
 import type { AgentContext } from '../../../shared/types/agent';
 import type { VoiceOverlayMode, VoiceOverlayPhase } from '../../../shared/types/push-to-talk';
+import type { HotkeyConfig } from '../../../shared/types/clawdesk-settings';
+import { resolveTriggerKeycode } from '../../../shared/types/clawdesk-settings';
 
 const logger = log.scope('voice-mode-manager');
 
@@ -45,6 +47,10 @@ export class VoiceModeManager {
   private state: VoiceState = 'idle';
   private isInitialized = false;
   private isQuickAskShortcutInitialized = false;
+  /** Context captured at command mode start (before agent window appears). */
+  private pendingContext: AgentContext | null = null;
+  /** The uiohook keycode of the currently registered trigger key. */
+  private activeTriggerKeycode: number = UiohookKey.CtrlRight;
   private readonly stopKeys = new Set<number>([
     UiohookKey.CtrlRight,
     UiohookKey.AltRight,
@@ -73,7 +79,7 @@ export class VoiceModeManager {
     }
 
     const quickAskRegistered = globalShortcut.register('Control+Space', () => {
-      keyboardService.cancelActiveHandler(UiohookKey.CtrlRight);
+      keyboardService.cancelActiveHandler(this.activeTriggerKeycode);
       void this.toggleQuickAskFromShortcut('globalShortcut');
     });
     this.isQuickAskShortcutInitialized = true;
@@ -86,23 +92,35 @@ export class VoiceModeManager {
     logger.warn('Failed to register Control+Space global shortcut for Quick Ask');
   }
 
-  initialize(): void {
+  initialize(config?: HotkeyConfig): void {
     if (this.isInitialized) {
       logger.info('VoiceModeManager already initialized, skipping');
       return;
     }
 
-    this.registerDictationToggle(UiohookKey.CtrlRight);
-    // Fallback for keyboards / IME setups where Right Ctrl is hard to capture.
-    this.registerDictationToggle(UiohookKey.AltRight);
+    const keycode = config ? resolveTriggerKeycode(config) : UiohookKey.CtrlRight;
+    this.activeTriggerKeycode = keycode;
+    this.stopKeys.clear();
+    this.stopKeys.add(keycode);
 
-    // ── Right Ctrl + Shift → command mode ───────────────────────────────────
-    // interceptChordOnNewModifier in KeyboardService handles the case where
-    // Right Ctrl was pressed slightly before Shift.
-    // Re-pressing the chord while a recording is in progress acts as a unified
-    // stop — covers the case where the user keeps Shift held when stopping.
+    // For non-modifier trigger keys (CapsLock, F-keys, MetaRight), register
+    // them as pseudo-modifiers so Space chords can be detected.
+    const isStandardModifier = ([
+      UiohookKey.CtrlRight, UiohookKey.AltRight, UiohookKey.Ctrl,
+      UiohookKey.Shift, UiohookKey.ShiftRight,
+    ] as readonly number[]).includes(keycode);
+    if (!isStandardModifier) {
+      keyboardService.setTriggerKeycode(keycode);
+    }
+
+    // Determine the modifier string for Space+trigger chords.
+    const triggerModifier = this.resolveTriggerModifier(keycode);
+
+    this.registerDictationToggle(keycode);
+
+    // ── trigger + Shift → command mode ──────────────────────────────────────
     keyboardService.register({
-      key: UiohookKey.CtrlRight,
+      key: keycode,
       modifier: 'shift',
       onKeyDown: () => {
         if (this.state === 'idle') {
@@ -112,35 +130,13 @@ export class VoiceModeManager {
         }
       },
     });
-    keyboardService.register({
-      key: UiohookKey.AltRight,
-      modifier: 'shift',
-      onKeyDown: () => {
-        if (this.state === 'idle') {
-          void this.startCommandMode();
-        } else {
-          void this.stopCurrentMode();
-        }
-      },
-    });
 
-    // ── Right Ctrl + Space → quick ask ──────────────────────────────────────
-    // Space onKeyDown cancels the pending bare Right Ctrl handler so it cannot
-    // fire dictation when Right Ctrl is eventually released.
-    // Re-pressing the chord while recording acts as a unified stop.
+    // ── trigger + Space → quick ask ─────────────────────────────────────────
     keyboardService.register({
       key: UiohookKey.Space,
-      modifier: 'rctrl',
+      modifier: triggerModifier,
       onKeyDown: () => {
-        keyboardService.cancelActiveHandler(UiohookKey.CtrlRight);
-        void this.toggleQuickAskFromShortcut('uiohook');
-      },
-    });
-    keyboardService.register({
-      key: UiohookKey.Space,
-      modifier: 'alt',
-      onKeyDown: () => {
-        keyboardService.cancelActiveHandler(UiohookKey.AltRight);
+        keyboardService.cancelActiveHandler(keycode);
         void this.toggleQuickAskFromShortcut('uiohook');
       },
     });
@@ -148,7 +144,10 @@ export class VoiceModeManager {
     this.initializeQuickAskShortcut();
 
     this.isInitialized = true;
-    logger.info('VoiceModeManager initialized');
+    logger.info('VoiceModeManager initialized', {
+      triggerKeycode: keycode,
+      voiceTriggerKey: config?.voiceTriggerKey ?? 'CtrlRight',
+    });
   }
 
   dispose(): void {
@@ -160,12 +159,11 @@ export class VoiceModeManager {
       logger.info('VoiceModeManager not initialized, skipping dispose');
       return;
     }
-    keyboardService.unregister(UiohookKey.CtrlRight);
-    keyboardService.unregister(UiohookKey.AltRight);
-    keyboardService.unregister(UiohookKey.CtrlRight, 'shift');
-    keyboardService.unregister(UiohookKey.AltRight, 'shift');
-    keyboardService.unregister(UiohookKey.Space, 'rctrl');
-    keyboardService.unregister(UiohookKey.Space, 'alt');
+    const keycode = this.activeTriggerKeycode;
+    const modifier = this.resolveTriggerModifier(keycode);
+    keyboardService.unregister(keycode);
+    keyboardService.unregister(keycode, 'shift');
+    keyboardService.unregister(UiohookKey.Space, modifier);
     if (this.isQuickAskShortcutInitialized) {
       globalShortcut.unregister('Control+Space');
       this.isQuickAskShortcutInitialized = false;
@@ -253,6 +251,21 @@ export class VoiceModeManager {
     });
   }
 
+  /**
+   * Map a trigger keycode to the uiohook modifier string used for Space+trigger
+   * chords (Quick Ask). The KeyboardService expects 'rctrl' for CtrlRight,
+   * 'alt' for AltRight, etc.
+   */
+  private resolveTriggerModifier(keycode: number): 'rctrl' | 'alt' | 'ctrl' | 'shift' | 'trigger' {
+    if (keycode === UiohookKey.CtrlRight) return 'rctrl';
+    if (keycode === UiohookKey.AltRight) return 'alt';
+    if (keycode === UiohookKey.Ctrl) return 'ctrl';
+    if (keycode === UiohookKey.Shift || keycode === UiohookKey.ShiftRight) return 'shift';
+    // For non-modifier keys (CapsLock, F-keys, Meta), use the 'trigger'
+    // pseudo-modifier tracked by KeyboardService.setTriggerKeycode().
+    return 'trigger';
+  }
+
   // ── Private start / stop helpers ──────────────────────────────────────────
 
   private async startDictation(): Promise<void> {
@@ -285,11 +298,17 @@ export class VoiceModeManager {
     logger.info('VoiceModeManager: START command');
     this.state = 'command_recording';
     this.publishOverlayState('command', 'recording');
+
+    // Capture context BEFORE the agent window appears, so we get the
+    // user's actual frontmost app (not our own window).
+    try { this.pendingContext = await contextCaptureService.capture(); } catch { this.pendingContext = null; }
+
     try {
       await asrService.start();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       this.state = 'idle';
+      this.pendingContext = null;
       this.publishOverlayState('command', 'error');
       floatingWindow.sendError(`语音启动失败: ${msg}`);
     }
@@ -385,8 +404,8 @@ export class VoiceModeManager {
       const transcript = await this.cleanTranscript(rawTranscript, 'command');
       const tClean = Date.now();
 
-      let context: AgentContext = { appName: 'Unknown', windowTitle: '' };
-      try { context = await contextCaptureService.capture(); } catch { /* ignore */ }
+      const context = this.pendingContext ?? { appName: 'Unknown', windowTitle: '' };
+      this.pendingContext = null;
       const tCtx = Date.now();
       this.publishOverlayState('command', 'executing');
       floatingWindow.sendStatus('executing');
@@ -404,6 +423,7 @@ export class VoiceModeManager {
       });
 
     } catch (err) {
+      this.pendingContext = null;
       floatingWindow.allowHide();
       this.publishOverlayState('command', 'error');
       const msg = err instanceof Error ? err.message : String(err);

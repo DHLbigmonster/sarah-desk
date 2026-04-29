@@ -13,7 +13,7 @@ import log from 'electron-log';
 
 const logger = log.scope('keyboard-service');
 
-export type TriggerModifier = 'shift' | 'ctrl' | 'alt' | 'rctrl';
+export type TriggerModifier = 'shift' | 'ctrl' | 'alt' | 'rctrl' | 'trigger';
 
 export interface TriggerConfig {
   /** uiohook-napi key code */
@@ -75,6 +75,8 @@ export class KeyboardService {
   private heldModifiers: Set<TriggerModifier> = new Set();
   // Remember which handler got the keyDown so keyUp always matches it
   private activeHandlers = new Map<number, { cfg: TriggerConfig; state: TriggerState }>();
+  // Non-modifier trigger key to track as a pseudo-modifier for chord detection
+  private triggerKeycode: number | null = null;
 
   private boundKeyDown = (e: KeyboardEvent): void => this.onKeyDown(e);
   private boundKeyUp = (e: KeyboardEvent): void => this.onKeyUp(e);
@@ -156,6 +158,15 @@ export class KeyboardService {
 
   get isActive(): boolean {
     return this.isStarted;
+  }
+
+  /**
+   * Register a non-modifier keycode to be tracked as a pseudo-modifier.
+   * This enables chord detection (trigger + Space) for trigger keys like
+   * CapsLock, F-keys, or MetaRight that aren't standard modifiers.
+   */
+  setTriggerKeycode(keycode: number | null): void {
+    this.triggerKeycode = keycode;
   }
 
   private resolveEntryAtKeyDown(keycode: number): { cfg: TriggerConfig; state: TriggerState } | undefined {
@@ -259,6 +270,14 @@ export class KeyboardService {
       // no return — continues to be processed as a trigger key
     }
 
+    // Non-modifier trigger key: track as 'trigger' pseudo-modifier for chord detection
+    if (this.triggerKeycode !== null && e.keycode === this.triggerKeycode
+        && !SHIFT_KEYCODES.has(e.keycode) && !LEFT_CTRL_KEYCODES.has(e.keycode)
+        && e.keycode !== RIGHT_CTRL_KEYCODE && e.keycode !== RIGHT_ALT_KEYCODE) {
+      this.heldModifiers.add('trigger');
+      // no return — continues to be processed as a trigger key
+    }
+
     const entry = this.resolveEntryAtKeyDown(e.keycode);
     if (!entry) return;
     const { cfg, state } = entry;
@@ -314,6 +333,12 @@ export class KeyboardService {
     if (e.keycode === RIGHT_CTRL_KEYCODE) {
       this.heldModifiers.delete('rctrl');
       // no return — continues to process keyUp for AgentVoice trigger
+    }
+
+    // Non-modifier trigger key: remove pseudo-modifier
+    if (this.triggerKeycode !== null && e.keycode === this.triggerKeycode) {
+      this.heldModifiers.delete('trigger');
+      // no return — continues to process keyUp for trigger handler
     }
 
     // Use the handler that got the keyDown — don't re-resolve (modifier may have changed)

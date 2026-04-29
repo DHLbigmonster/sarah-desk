@@ -1,4 +1,5 @@
 import type { MiniStatus } from '../../shared/types/mini';
+import type { HotkeyConfig } from '../../shared/types/clawdesk-settings';
 import './styles.css';
 
 const rootElement = document.getElementById('root');
@@ -17,6 +18,22 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+const TRIGGER_KEY_LABELS: Record<string, string> = {
+  CtrlRight: 'Right Ctrl',
+  AltRight: 'Right Alt',
+  CapsLock: 'CapsLock',
+  MetaRight: 'Right Cmd',
+  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
+  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
+};
+
+function hotkeyHint(config: HotkeyConfig): string {
+  const label = config.voiceTriggerKey === 'custom'
+    ? `Key ${config.customKeycode ?? '?'}`
+    : (TRIGGER_KEY_LABELS[config.voiceTriggerKey] ?? config.voiceTriggerKey);
+  return `${label} · ${label}+Space`;
 }
 
 function voiceStateLabel(state: string): string {
@@ -73,7 +90,7 @@ function render(status: MiniStatus): void {
         <span class="status-dot ${voiceStateClass(status.hotkeys.currentVoiceState)}"></span>
         <div>
           <span class="voice-state-text">${escapeHtml(voiceStateLabel(status.hotkeys.currentVoiceState))}</span>
-          <span class="voice-state-hint">Right Ctrl · Ctrl+Space</span>
+          <span class="voice-state-hint">${escapeHtml(hotkeyHint(status.hotkeys.hotkeyConfig))}</span>
         </div>
       </div>
 

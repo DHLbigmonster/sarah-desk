@@ -18,6 +18,7 @@ import started from 'electron-squirrel-startup';
 import { setupAllIpcHandlers } from './main/ipc';
 import { floatingWindow, agentWindow, clawDeskMainWindow, miniSettingsWindow, setQuitting } from './main/windows';
 import { voiceModeManager } from './main/services/push-to-talk/voice-mode-manager';
+import { hotkeyManager } from './main/services/hotkey/hotkey-manager';
 import { permissionsService } from './main/services/permissions';
 import { firstLaunchService } from './main/services/permissions/first-launch.service';
 import { trayStateService } from './main/services/tray/tray-state.service';
@@ -200,6 +201,7 @@ async function getMiniStatus(): Promise<MiniStatus> {
       accessibilityGranted,
       keyboardHookActive: voiceModeManager.isReady,
       currentVoiceState: voiceModeManager.currentState,
+      hotkeyConfig: hotkeyManager.getConfig(),
     },
     recorder: {
       created: Boolean(recorderWindow && !recorderWindow.isDestroyed()),
@@ -545,12 +547,12 @@ app.on('ready', async () => {
   // its show/hide events for keeping the menu label in sync.
   createTray();
 
-  // Mode 1 & 2: keyboard hooks require Accessibility permission.
+  // Voice mode keyboard hooks require Accessibility permission.
   // Skip uiohook initialization entirely if not granted — it crashes with SIGABRT otherwise.
   const hasAccessibility = permissionsService.getAccessibilityStatus(!smokeTestMode);
   logger.info('Accessibility permission check', { hasAccessibility });
   if (hasAccessibility) {
-    voiceModeManager.initialize();
+    hotkeyManager.init();
   } else {
     logger.warn('Accessibility not granted — keyboard hooks disabled until permission is given and app is restarted');
     if (!smokeTestMode) {
@@ -563,7 +565,7 @@ app.on('ready', async () => {
   const missing: string[] = [];
   if (!micGranted) missing.push('麦克风');
   if (!hasAccessibility) missing.push('辅助功能');
-  missing.push('输入监控');
+  if (!hasAccessibility) missing.push('输入监控');
   const screenRecGranted = permissionsService.getScreenRecordingStatus() === 'granted';
   if (!screenRecGranted) missing.push('屏幕录制');
   logger.info('Permission summary at startup', {
@@ -585,7 +587,7 @@ app.on('ready', async () => {
             missing.map((p) => `  - ${p}`).join('\n'),
             '',
             '请在「系统设置 → 隐私与安全性」中逐一启用，然后重启 Sarah。',
-            'Mode 1（听写）不需要 Open Claw 或火山引擎配置即可使用。',
+            'Dictation（听写）不需要 Open Claw 或火山引擎配置即可使用。',
           ].join('\n'),
           silent: false,
         });
@@ -619,7 +621,7 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   // Re-initialize voice mode manager if it was disposed but app is still running
   if (permissionsService.getAccessibilityStatus() && !voiceModeManager.isRecording) {
-    voiceModeManager.initialize();
+    voiceModeManager.initialize(hotkeyManager.getConfig());
   }
 });
 

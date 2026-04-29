@@ -77,6 +77,7 @@ export function HotkeysSection() {
 
   const isDirty = draft && config && (
     draft.voiceTriggerKey !== config.voiceTriggerKey ||
+    draft.customKeycode !== config.customKeycode ||
     draft.toggleWindow !== config.toggleWindow
   );
 

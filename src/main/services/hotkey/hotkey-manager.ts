@@ -25,6 +25,7 @@ class HotkeyManager {
     const config = clawDeskSettingsService.getHotkeyConfig();
     this.currentToggleWindow = config.toggleWindow;
     this.registerToggleWindow(config.toggleWindow);
+    voiceModeManager.initialize(config);
     logger.info('HotkeyManager initialized', config);
   }
 
@@ -38,7 +39,8 @@ class HotkeyManager {
     const previousToggleWindow = this.currentToggleWindow || previousConfig.toggleWindow;
     const accessibilityGranted = permissionsService.getAccessibilityStatus();
     const toggleWindowChanged = config.toggleWindow !== previousToggleWindow;
-    const voiceTriggerChanged = config.voiceTriggerKey !== previousConfig.voiceTriggerKey;
+    const voiceTriggerChanged = config.voiceTriggerKey !== previousConfig.voiceTriggerKey
+      || config.customKeycode !== previousConfig.customKeycode;
 
     try {
       if (toggleWindowChanged) {
@@ -63,9 +65,8 @@ class HotkeyManager {
 
       if (voiceTriggerChanged) {
         if (accessibilityGranted) {
-          // VoiceModeManager doesn't have reinitialize method, just dispose and initialize
           voiceModeManager.dispose();
-          voiceModeManager.initialize();
+          voiceModeManager.initialize(config);
         } else {
           logger.warn('Accessibility not granted — deferring voice trigger rebind', {
             requested: config.voiceTriggerKey,
@@ -91,7 +92,7 @@ class HotkeyManager {
       if (voiceTriggerChanged && accessibilityGranted) {
         try {
           voiceModeManager.dispose();
-          voiceModeManager.initialize();
+          voiceModeManager.initialize(previousConfig);
         } catch (rollbackError) {
           logger.error('HotkeyManager: failed to roll back voice trigger key', {
             error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),

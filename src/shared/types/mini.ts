@@ -1,4 +1,5 @@
 import type { ASRStatus } from './asr';
+import type { HotkeyConfig } from './clawdesk-settings';
 
 export type MiniVoiceState =
   | 'idle'
@@ -23,6 +24,7 @@ export interface MiniHotkeyStatus {
   accessibilityGranted: boolean;
   keyboardHookActive: boolean;
   currentVoiceState: MiniVoiceState;
+  hotkeyConfig: HotkeyConfig;
 }
 
 export interface MiniRecorderStatus {
