@@ -103,5 +103,25 @@ if [ -n "$NEW_AUTHORITY" ]; then
   echo "$NEW_AUTHORITY" > "$LAST_AUTH_FILE"
 fi
 
+# Remove the build output so macOS Launch Services / Dock can't surface a
+# duplicate Sarah icon from `out/Sarah-darwin-arm64/Sarah.app` after install.
+# Keeping two Sarah.app on disk with the same bundle id (com.sarah.app) makes
+# the Dock show two "running" indicators when either is launched.
+if [ -d "$PACKAGED_APP_PATH" ]; then
+  echo "Removing build output to avoid duplicate Dock icon..."
+  /usr/bin/lsregister -u "$PACKAGED_APP_PATH" 2>/dev/null \
+    || /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -u "$PACKAGED_APP_PATH" 2>/dev/null \
+    || true
+  rm -rf "$ROOT_DIR/out/Sarah-darwin-arm64"
+fi
+
+# Final guard: kill any process whose path is NOT $TARGET_APP_PATH but matches
+# the Sarah pattern (e.g. an old `out/...` instance the user opened by hand).
+STRAYS="$(pgrep -af "$APP_PROCESS_PATTERN" | grep -v -F "$TARGET_APP_PATH" | awk '{print $1}' || true)"
+if [ -n "$STRAYS" ]; then
+  echo "Killing stray Sarah processes from non-installed paths..."
+  echo "$STRAYS" | xargs kill -9 2>/dev/null || true
+fi
+
 echo "Installed to $TARGET_APP_PATH"
 open "$TARGET_APP_PATH"
