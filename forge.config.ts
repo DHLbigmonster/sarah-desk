@@ -1,7 +1,8 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
-import { MakerDMG } from '@electron-forge/maker-dmg';
+// DMG maker removed — appdmg native modules fail on CI runners.
+// Users get a .zip which macOS handles natively.
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { VitePlugin } from '@electron-forge/plugin-vite';
@@ -68,9 +69,6 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
-    new MakerDMG({
-      format: 'ULFO',
-    }),
     new MakerRpm({}),
     new MakerDeb({}),
   ],

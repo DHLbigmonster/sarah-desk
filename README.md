@@ -47,21 +47,33 @@ The trigger key is fully customizable: Right Ctrl, Right Alt, CapsLock, Right Cm
 
 ## Installation
 
-### Download (Recommended)
+### One-Line Install (Recommended)
 
-Download the latest `.dmg` from [**GitHub Releases**](https://github.com/DHLbigmonster/sarah-desk/releases). Open the DMG and drag Sarah to your Applications folder.
+```bash
+curl -sSL https://raw.githubusercontent.com/DHLbigmonster/sarah-desk/main/scripts/install.sh | bash
+```
 
-> **Note**: macOS will show an "unidentified developer" warning because the app is not code-signed. Right-click → Open on first launch to bypass Gatekeeper.
+This downloads the latest release, extracts it, and installs Sarah to `/Applications`. Takes about 10 seconds.
+
+> **Note**: The app is not code-signed. On first launch, right-click Sarah in Applications and select **Open** to bypass Gatekeeper. Then grant Microphone, Input Monitoring, and Accessibility permissions when prompted.
 
 ### Quick Start (Zero Config)
 
-**No registration, no API keys, no Chinese phone number.** Sarah uses Apple Speech for voice recognition out of the box.
+**No registration, no API keys, no Chinese phone number.** Sarah uses Apple Speech for voice recognition out of the box. Want better accuracy? Connect Volcengine ASR in Settings.
+
+### Manual Download
+
+Go to [**GitHub Releases**](https://github.com/DHLbigmonster/sarah-desk/releases), download the `.zip` for your architecture (arm64 for Apple Silicon, x64 for Intel), extract it, and drag `Sarah.app` to your Applications folder.
 
 ### Prerequisites
 
-- **macOS 12** or later
-- **Node.js 18+** (for building; not needed at runtime after install)
-- **pnpm** (`npm install -g pnpm`)
+| Requirement | For |
+|-------------|-----|
+| **macOS 12+** | Required (runtime) |
+| **Node.js 18+** | Building from source only |
+| **pnpm** | Building from source only (`npm install -g pnpm`) |
+
+If you use the one-line install or download from Releases, you only need macOS 12+.
 
 ### Development Mode
 
@@ -207,7 +219,7 @@ Checks source wiring, packaged app contents, native modules, and runs a packaged
 ## CI/CD
 
 - **`ci.yml`**: Runs on PR/push to main — typecheck, lint, test, verify:mini
-- **`release.yml`**: Runs on tag push (`v*`) — builds macOS arm64 DMG + ZIP, creates draft GitHub Release
+- **`release.yml`**: Runs on tag push (`v*`) — builds macOS arm64 ZIP, creates draft GitHub Release
 
 To create a release:
 

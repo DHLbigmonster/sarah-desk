@@ -32,8 +32,7 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p dist-release
-          find out/make -name "*.dmg" -exec cp {} dist-release/ \; 2>/dev/null || true
-          find out/make -name "*.zip" -exec cp {} dist-release/ \; 2>/dev/null || true
+          find out/make -name "*.zip" -exec cp {} dist-release/ \;
           echo "Release artifacts:"
           ls -lh dist-release/
 
