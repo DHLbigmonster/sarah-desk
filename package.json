@@ -15,15 +15,12 @@
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
-    "verify:mini": "node scripts/verify-mini-integration.ts",
+    "verify:mini": "node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "keywords": [],
-  "author": {
-    "name": "taosu",
-    "email": "taosu@mindfold.ai"
-  },
+  "author": "DHLbigmonster",
   "license": "MIT",
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",

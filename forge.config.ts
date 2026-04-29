@@ -33,7 +33,7 @@ const config: ForgeConfig = {
     icon: './assets/icon',
     // Bundle the tray icon next to the packaged app. main.ts reads it via
     // `process.resourcesPath/assets/tray-icon.png` when app.isPackaged is true.
-    extraResource: ['./assets/tray-icon.png', './.env'],
+    extraResource: ['./assets/tray-icon.png'],
   },
   rebuildConfig: {
     force: true,
@@ -61,14 +61,9 @@ const config: ForgeConfig = {
         }),
       );
     },
-    postPackage: async (_forgeConfig, options) => {
-      if (process.platform === 'darwin') {
-        const appPath = path.join(options.outputPaths[0], `${options.packagerConfig?.name ?? 'Sarah'}.app`);
-        execSync(`xattr -cr "${appPath}"`);
-        execSync(`codesign --force --deep --sign - "${appPath}"`);
-        console.log('Re-signed app:', appPath);
-      }
-    },
+    // Signing is handled in scripts/install-packaged-app.sh after ditto,
+    // which strips resource forks and com.apple.provenance xattrs that
+    // block codesign when signing directly in the output directory.
   },
   makers: [
     new MakerSquirrel({}),

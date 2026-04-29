@@ -27,7 +27,6 @@ Important files:
 - `src/main.ts`
 - `src/main/services/push-to-talk/voice-mode-manager.ts`
 - `src/main/services/agent/agent.service.ts`
-- `src/main/services/agent/intent-router.service.ts`
 - `src/main/services/asr/asr.service.ts`
 - `src/main/services/text-input/text-input.service.ts`
 - `src/main/windows/floating.ts`
@@ -80,7 +79,7 @@ Known-good local verification from 2026-04-28:
 Packaged verification confirmed:
 
 - `out/Sarah-darwin-arm64/Sarah.app`
-- `/Users/chaosmac/Applications/Sarah.app`
+- `~/Applications/Sarah.app`
 - `CFBundleDisplayName = Sarah`
 - `CFBundleExecutable = Sarah`
 - `CFBundleIdentifier = com.sarah.app`
@@ -88,8 +87,8 @@ Packaged verification confirmed:
 
 ## Open Items
 
-- Re-grant macOS permissions for `com.sarah.app`: microphone, input monitoring, accessibility.
-- Reinstalling ad-hoc packaged builds can make macOS TCC treat Sarah as changed; if all right-Control hotkeys stop working, check `~/Library/Logs/Sarah/main.log` for `hasAccessibility: false` and re-enable Sarah in Accessibility/Input Monitoring.
+- Sarah is now signed with a real codesigning identity from the login keychain (Apple Development cert by default; override with `CODESIGN_IDENTITY`). TCC grants persist across reinstalls as long as the identity stays the same.
+- One-time migration: the first install after switching from adhoc to a real identity still requires re-granting Accessibility / Input Monitoring (TCC sees the new signature as a different app). Subsequent reinstalls keep the grant.
 - If custom dictionary data exists, migrate it from the old config directory to `~/.config/sarah-desk/dictionary.json`.
 - Consider renaming the local folder to `sarah-desk` after active shells and editor sessions are closed.
 - Next UI work should prioritize a custom menubar popover, markdown rendering in answer overlay, and a clearer first-run permission flow.
@@ -120,8 +119,39 @@ Decision:
 
 Next steps:
 
-- After installing, re-enable `/Users/chaosmac/Applications/Sarah.app` in Accessibility and Input Monitoring, then restart Sarah.
+- After installing, re-enable `~/Applications/Sarah.app` in Accessibility and Input Monitoring, then restart Sarah.
 - Longer term, replace ad-hoc signing with a stable local/developer signing identity so package reinstallations do not keep invalidating TCC grants.
+
+## 2026-04-28 Stop TCC Re-prompting (Stable Codesigning)
+
+Problem:
+
+- Every `npm run install:app` invalidated Accessibility / Input Monitoring grants. Sarah kept booting with `hasAccessibility: false` and macOS popped the same authorization dialog again.
+
+Root cause:
+
+- `forge.config.ts` postPackage hook signed with `codesign --sign -` (adhoc). Adhoc TCC entries are keyed by the executable's CDHash, which changes on every rebuild, so each install looked like a brand-new app.
+
+What changed:
+
+- `forge.config.ts`
+  - postPackage now picks a real signing identity. Order: `CODESIGN_IDENTITY` env var → first identity from `security find-identity -v -p codesigning` → adhoc fallback (warns).
+  - The auto-detected identity comes from `security find-identity -v -p codesigning`. Set `CODESIGN_IDENTITY` env var to override.
+- `scripts/install-packaged-app.sh`
+  - After install, runs `codesign -dvvv` and warns if the binary is still adhoc; otherwise prints which `Authority=` line signed it.
+
+Decision:
+
+- Apple Development cert is the lowest-friction option since the user already has one in the login keychain. It's tied to this machine and expires annually, but TCC tracks by team identifier + bundle ID, so reinstalls keep the grant as long as the cert is valid. If it expires, redo permissions once and continue.
+
+Migration step required by user:
+
+- After the first install with the new signature, macOS treats Sarah as a new app. Re-grant once in Accessibility and Input Monitoring. After that, future reinstalls keep the grant.
+
+Verification:
+
+- `pnpm -s package` produced a valid signature with a real `Authority=Apple Development: ...` identity (was `Signature=adhoc`, `TeamIdentifier=not set`).
+- `pnpm -s typecheck` / `pnpm -s lint` / `pnpm -s test` (36/36 passed).
 
 Verification:
 

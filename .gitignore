@@ -104,3 +104,7 @@ dist/
 
 # Temporary uploads from CodePilot / AI tools
 .codepilot-uploads/
+.last-install-authority
+
+# AI agent workspace (machine-specific, not for OSS)
+.trellis/
