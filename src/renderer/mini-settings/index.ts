@@ -9,13 +9,6 @@ if (!rootElement) {
 
 const root = rootElement;
 
-function statusText(value: boolean): string {
-  return value ? 'Ready' : 'Needs attention';
-}
-
-function statusClass(value: boolean): string {
-  return value ? 'ok' : 'warn';
-}
 
 function escapeHtml(value: string): string {
   return value
@@ -26,87 +19,130 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#039;');
 }
 
+function voiceStateLabel(state: string): string {
+  switch (state) {
+    case 'idle':
+      return 'Idle';
+    case 'dictation_recording':
+      return 'Dictating...';
+    case 'command_recording':
+      return 'Command mode...';
+    case 'quickask_recording':
+      return 'Quick Ask...';
+    default:
+      return state;
+  }
+}
+
+function voiceStateClass(state: string): string {
+  return state === 'idle' ? 'ok' : 'warn';
+}
+
+function gatewayStateClass(state: string): string {
+  switch (state) {
+    case 'connected':
+      return 'ok';
+    case 'loading':
+      return 'warn';
+    default:
+      return 'error';
+  }
+}
+
 function render(status: MiniStatus): void {
   const recorderReady = status.recorder.created && status.recorder.ready;
+  const perms = status.permissions;
+  const missingPerms = [
+    perms.microphone !== 'granted' ? 'Mic' : null,
+    !perms.accessibility ? 'A11y' : null,
+    !perms.inputMonitoring ? 'Input' : null,
+    perms.screenRecording !== 'granted' ? 'Screen' : null,
+  ].filter(Boolean);
+
   root.innerHTML = `
+    <div class="refresh-indicator" id="refresh-dot"></div>
     <section class="shell">
       <header class="header">
-        <div>
-          <p class="eyebrow">Sarah</p>
-          <h1>Control Center</h1>
+        <div class="header-left">
+          <h1>Sarah</h1>
+          <span class="mode-tag">Voice</span>
         </div>
-        <span class="mode">Voice</span>
       </header>
 
-      <div class="hero">
+      <div class="voice-hero">
+        <span class="status-dot ${voiceStateClass(status.hotkeys.currentVoiceState)}"></span>
         <div>
-          <span class="label">Voice Runtime</span>
-          <strong>${escapeHtml(status.hotkeys.currentVoiceState)}</strong>
-          <small>Right Ctrl for dictation, Ctrl+Space for quick ask</small>
+          <span class="voice-state-text">${escapeHtml(voiceStateLabel(status.hotkeys.currentVoiceState))}</span>
+          <span class="voice-state-hint">Right Ctrl · Ctrl+Space</span>
         </div>
-        <span class="signal ${status.hotkeys.keyboardHookActive ? 'ok' : 'warn'}">
-          ${status.hotkeys.keyboardHookActive ? 'Active' : 'Inactive'}
-        </span>
       </div>
 
-      <div class="panel" aria-label="Runtime status">
-        <div class="row">
-          <div>
-            <span class="label">Gateway</span>
-            <strong>${escapeHtml(status.gateway.url)}</strong>
-            <small>${escapeHtml(status.gateway.detail)}</small>
+      ${missingPerms.length > 0 ? `
+      <div class="status-card warn-card">
+        <span class="status-dot warn"></span>
+        <div class="status-info">
+          <span class="status-label">Permissions</span>
+          <span class="status-value">Missing: ${escapeHtml(missingPerms.join(', '))}</span>
+          <span class="status-detail">Open Settings to grant</span>
+        </div>
+      </div>
+      ` : ''}
+
+      <div class="status-grid">
+        <div class="status-card">
+          <span class="status-dot ${gatewayStateClass(status.gateway.state)}"></span>
+          <div class="status-info">
+            <span class="status-label">Gateway</span>
+            <span class="status-value">${escapeHtml(status.gateway.state)}</span>
+            <span class="status-detail">${escapeHtml(status.gateway.url)}</span>
           </div>
-          <span class="pill ${status.gateway.state === 'connected' ? 'ok' : 'warn'}">
-            ${status.gateway.state}
-          </span>
         </div>
 
-        <div class="row">
-          <div>
-            <span class="label">Speech</span>
-            <strong>${escapeHtml(status.asrProvider.name)}</strong>
-            <small>${escapeHtml(status.asrProvider.detail)}</small>
+        <div class="status-card">
+          <span class="status-dot ${status.asrProvider.configured ? 'ok' : 'warn'}"></span>
+          <div class="status-info">
+            <span class="status-label">Speech</span>
+            <span class="status-value">${escapeHtml(status.asrProvider.name)}</span>
+            <span class="status-detail">${escapeHtml(status.asrProvider.detail)}</span>
           </div>
-          <span class="pill ${statusClass(status.asrProvider.configured)}">
-            ${statusText(status.asrProvider.configured)}
-          </span>
         </div>
 
-        <div class="row">
-          <div>
-            <span class="label">Refinement</span>
-            <strong>${escapeHtml(status.refinementProvider.name)}</strong>
-            <small>${escapeHtml(status.refinementProvider.detail)}</small>
+        <div class="status-card">
+          <span class="status-dot ${status.refinementProvider.configured ? 'ok' : 'warn'}"></span>
+          <div class="status-info">
+            <span class="status-label">Refinement</span>
+            <span class="status-value">${escapeHtml(status.refinementProvider.name)}</span>
+            <span class="status-detail">${status.refinementProvider.configured ? 'Model' : 'Fallback'}</span>
           </div>
-          <span class="pill ${statusClass(status.refinementProvider.configured)}">
-            ${status.refinementProvider.configured ? 'Model' : 'Fallback'}
-          </span>
         </div>
 
-        <div class="row">
-          <div>
-            <span class="label">Recorder</span>
-            <strong>Hidden recorder window</strong>
-            <small>ASR status: ${escapeHtml(status.recorder.asrStatus)}</small>
+        <div class="status-card">
+          <span class="status-dot ${recorderReady ? 'ok' : 'warn'}"></span>
+          <div class="status-info">
+            <span class="status-label">Recorder</span>
+            <span class="status-value">${recorderReady ? 'Ready' : 'Loading'}</span>
+            <span class="status-detail">${escapeHtml(status.recorder.asrStatus)}</span>
           </div>
-          <span class="pill ${statusClass(recorderReady)}">
-            ${recorderReady ? 'Ready' : 'Loading'}
-          </span>
         </div>
       </div>
 
       <footer>
-        <button id="logs" type="button">Logs</button>
-        <button id="refresh" type="button" class="primary">Refresh</button>
+        <div class="footer-left">
+          <button id="logs" type="button">Logs</button>
+        </div>
+        <div class="footer-right">
+          <button id="settings" type="button" class="primary">Settings</button>
+        </div>
       </footer>
     </section>
   `;
 
-  document.getElementById('refresh')?.addEventListener('click', () => {
-    void load();
-  });
   document.getElementById('logs')?.addEventListener('click', () => {
     void window.api.mini.showLogs();
+  });
+
+  document.getElementById('settings')?.addEventListener('click', () => {
+    void window.api.clawDesk.showHome();
   });
 }
 
@@ -115,26 +151,46 @@ function renderError(error: unknown): void {
   root.innerHTML = `
     <section class="shell">
       <header class="header">
-        <div>
-          <p class="eyebrow">Sarah</p>
-          <h1>Settings</h1>
+        <div class="header-left">
+          <h1>Sarah</h1>
+          <span class="mode-tag">Error</span>
         </div>
       </header>
       <div class="error">${escapeHtml(message)}</div>
-      <footer><button id="refresh" type="button">Refresh</button></footer>
+      <footer>
+        <div class="footer-left"></div>
+        <div class="footer-right">
+          <button id="retry" type="button">Retry</button>
+        </div>
+      </footer>
     </section>
   `;
-  document.getElementById('refresh')?.addEventListener('click', () => {
+  document.getElementById('retry')?.addEventListener('click', () => {
     void load();
   });
 }
 
 async function load(): Promise<void> {
+  const dot = document.getElementById('refresh-dot');
+  dot?.classList.add('active');
   try {
     render(await window.api.mini.getStatus());
   } catch (error) {
     renderError(error);
+  } finally {
+    setTimeout(() => dot?.classList.remove('active'), 400);
   }
 }
 
+// Initial load
 void load();
+
+// Auto-refresh on window focus
+window.addEventListener('focus', () => {
+  void load();
+});
+
+// Auto-refresh every 10 seconds
+setInterval(() => {
+  void load();
+}, 10_000);

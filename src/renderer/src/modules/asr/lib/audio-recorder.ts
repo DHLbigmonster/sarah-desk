@@ -204,7 +204,7 @@ export class AudioRecorder {
           sumSquares += inputData[i] * inputData[i];
         }
         const rms = Math.sqrt(sumSquares / inputData.length);
-        this.onAudioLevel?.(Math.max(0, Math.min(1, rms * 22)));
+        this.onAudioLevel?.(Math.max(0, Math.min(1, rms * 34)));
 
         // Convert Float32 audio to PCM 16-bit ArrayBuffer
         const pcmBuffer = float32ToArrayBuffer(inputData);

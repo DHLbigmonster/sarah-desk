@@ -12,6 +12,13 @@ export interface MiniProviderStatus {
   detail: string;
 }
 
+export interface MiniPermissionStatus {
+  microphone: 'granted' | 'not-determined' | 'denied' | 'restricted' | 'unknown';
+  accessibility: boolean;
+  screenRecording: 'granted' | 'not-determined' | 'denied' | 'restricted' | 'unknown';
+  inputMonitoring: boolean;
+}
+
 export interface MiniHotkeyStatus {
   accessibilityGranted: boolean;
   keyboardHookActive: boolean;
@@ -37,4 +44,5 @@ export interface MiniStatus {
   refinementProvider: MiniProviderStatus;
   hotkeys: MiniHotkeyStatus;
   recorder: MiniRecorderStatus;
+  permissions: MiniPermissionStatus;
 }

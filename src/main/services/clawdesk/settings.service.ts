@@ -5,6 +5,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import log from 'electron-log';
+import { resolve, isFromCredentialStore } from '../config/resolve-config';
 import type {
   ClawDeskCliToolDefinition,
   ClawDeskCliToolStatus,
@@ -16,6 +17,7 @@ import type {
   ClawDeskVersionInfo,
   HotkeyConfig,
   HotkeyCheckResult,
+  OpenClawStatus,
 } from '../../../shared/types/clawdesk-settings';
 import { DEFAULT_HOTKEY_CONFIG } from '../../../shared/types/clawdesk-settings';
 
@@ -218,11 +220,15 @@ const CLI_CATALOG: ClawDeskCliToolDefinition[] = [
     recommended: true,
     source: 'Current OpenClaw integration',
     installCommand: 'brew install openclaw',
-    detailIntro: 'OpenClaw CLI 提供 gateway、workspace 和 agent 执行能力，是当前桌面应用的底层运行时之一。',
+    detailIntro: 'OpenClaw CLI 是 AI 代理运行时，为 Sarah 的 Mode 2（语音代理）和 Mode 3（截图代理）提供底层能力。Mode 1（听写）不需要它。',
     docsUrl: 'https://github.com/openclaw/openclaw',
     repoUrl: 'https://github.com/openclaw/openclaw',
     authRequired: true,
-    postInstallNotes: ['安装后请继续执行 openclaw configure 或相关认证步骤。'],
+    postInstallNotes: [
+      '安装后运行 openclaw login 进行认证。',
+      '验证安装：which openclaw && openclaw --version',
+      '如遇 PATH 问题，请确保 Homebrew bin 目录在 PATH 中。',
+    ],
   },
   {
     id: 'lark-cli',
@@ -547,13 +553,16 @@ export class ClawDeskSettingsService {
 
   getProviderSummary(): ClawDeskProviderSummaryItem[] {
     const voiceConfigured = Boolean(
-      process.env.VOLCENGINE_APP_ID &&
-      process.env.VOLCENGINE_ACCESS_TOKEN &&
-      process.env.VOLCENGINE_RESOURCE_ID,
+      resolve('VOLCENGINE_APP_ID') &&
+      resolve('VOLCENGINE_ACCESS_TOKEN') &&
+      resolve('VOLCENGINE_RESOURCE_ID'),
     );
     const refinementConfigured = Boolean(
-      process.env.ARK_API_KEY && (process.env.DICTATION_REFINEMENT_ENDPOINT_ID || process.env.DICTATION_REFINEMENT_MODEL),
+      resolve('ARK_API_KEY') && (resolve('DICTATION_REFINEMENT_ENDPOINT_ID') || resolve('DICTATION_REFINEMENT_MODEL')),
     );
+
+    const voiceSource = isFromCredentialStore('VOLCENGINE_APP_ID') ? 'settings' : 'env';
+    const textSource = isFromCredentialStore('ARK_API_KEY') ? 'settings' : 'env';
 
     return [
       {
@@ -561,8 +570,10 @@ export class ClawDeskSettingsService {
         label: '语音服务商',
         provider: 'Volcengine ASR',
         detail: voiceConfigured
-          ? '已检测到 Volcengine ASR 配置，可用于语音输入链路。'
-          : '尚未检测到 Volcengine ASR 的完整环境变量。',
+          ? voiceSource === 'settings'
+            ? '已通过 Settings 配置 Volcengine ASR，可用于语音输入链路。'
+            : '已检测到 Volcengine ASR 配置（来自 .env），可用于语音输入链路。'
+          : '尚未检测到 Volcengine ASR 的完整配置。',
         configured: voiceConfigured,
         statusLabel: voiceConfigured ? '已检测到配置' : '未检测到配置',
         envKeys: [
@@ -573,18 +584,22 @@ export class ClawDeskSettingsService {
         envFilePath: PROJECT_ENV_PATH,
         envExamplePath: PROJECT_ENV_EXAMPLE_PATH,
         guidance: [
-          '在项目根目录的 .env 中填写 Volcengine ASR 相关环境变量。',
-          '可以参考同目录下的 .env.example 查看变量名与格式。',
-          '修改后重启应用，语音链路会重新读取配置。',
+          '推荐通过 Settings UI 填写，保存后即时生效，无需重启。',
+          '获取方式：volcengine.com → 语音技术 → 流式语音识别大模型 → 创建应用 → 获取 APP ID 和 Access Token。',
+          '详细步骤请参考 README.md 中的 "Getting Volcengine Credentials" 部分。',
+          '也可以在 .env 文件中配置，修改后需重启应用。',
         ],
         documentationUrl: 'https://www.volcengine.com/docs/6561/1354868',
+        configSource: voiceConfigured ? voiceSource : undefined,
       },
       {
         id: 'text',
         label: '小文本处理服务商',
         provider: 'Ark Lightweight Text Model',
         detail: refinementConfigured
-          ? '已检测到 Ark 轻量文本整理模型配置。'
+          ? textSource === 'settings'
+            ? '已通过 Settings 配置 Ark 轻量文本整理模型。'
+            : '已检测到 Ark 轻量文本整理模型配置（来自 .env）。'
           : '尚未检测到 Ark 文本整理模型的完整配置。',
         configured: refinementConfigured,
         statusLabel: refinementConfigured ? '已检测到配置' : '未检测到配置',
@@ -595,11 +610,12 @@ export class ClawDeskSettingsService {
         envFilePath: PROJECT_ENV_PATH,
         envExamplePath: PROJECT_ENV_EXAMPLE_PATH,
         guidance: [
-          '在 .env 中填写 Ark API Key 与轻量模型 endpoint id。',
+          '在 Settings 中直接填写 API Key，或在 .env 中配置。',
           'Dictation refinement 默认会走这条轻量文本模型链路。',
           '修改后重启应用，新的整理模型配置会立即生效。',
         ],
         documentationUrl: 'https://www.volcengine.com/docs/82379/1517416',
+        configSource: refinementConfigured ? textSource : undefined,
       },
     ];
   }
@@ -708,6 +724,25 @@ export class ClawDeskSettingsService {
     });
 
     return normalized;
+  }
+
+  async getOpenClawStatus(): Promise<OpenClawStatus> {
+    const binaryPath = await resolveBinary('openclaw');
+    if (!binaryPath) {
+      return { installed: false, path: null, version: null, authenticated: false };
+    }
+
+    const version = await resolveVersion(binaryPath, [['--version'], ['version']]);
+
+    let authenticated = false;
+    try {
+      const { stdout } = await execFileAsync(binaryPath, ['whoami'], { timeout: 5000 });
+      authenticated = stdout.trim().length > 0 && !stdout.toLowerCase().includes('not logged in');
+    } catch {
+      // whoami failed — assume not authenticated
+    }
+
+    return { installed: true, path: binaryPath, version, authenticated };
   }
 }
 

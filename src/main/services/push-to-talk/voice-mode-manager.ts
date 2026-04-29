@@ -366,12 +366,15 @@ export class VoiceModeManager {
     this.state = 'idle';
     logger.info('VoiceModeManager: STOP command');
 
+    const t0 = Date.now();
     try {
       this.publishOverlayState('command', 'processing');
       floatingWindow.sendStatus('processing');
       const result = await asrService.stop();
+      const tAsr = Date.now();
 
       if (!result?.text?.trim()) {
+        logger.info('voice-timing command empty', { asr_stop_ms: tAsr - t0 });
         this.resetOverlayAndHide();
         return;
       }
@@ -380,14 +383,25 @@ export class VoiceModeManager {
       this.publishOverlayState('command', 'routing');
       floatingWindow.sendStatus('routing');
       const transcript = await this.cleanTranscript(rawTranscript, 'command');
+      const tClean = Date.now();
 
       let context: AgentContext = { appName: 'Unknown', windowTitle: '' };
       try { context = await contextCaptureService.capture(); } catch { /* ignore */ }
+      const tCtx = Date.now();
       this.publishOverlayState('command', 'executing');
       floatingWindow.sendStatus('executing');
       agentWindow.showWithContext(context);
       this.resetOverlayAndHide();
       agentWindow.sendExternalSubmit(transcript, context);
+      const tHandoff = Date.now();
+      logger.info('voice-timing command', {
+        asr_stop_ms: tAsr - t0,
+        transcript_clean_ms: tClean - tAsr,
+        context_capture_ms: tCtx - tClean,
+        handoff_ms: tHandoff - tCtx,
+        total_ms: tHandoff - t0,
+        transcript_chars: transcript.length,
+      });
 
     } catch (err) {
       floatingWindow.allowHide();
@@ -402,12 +416,15 @@ export class VoiceModeManager {
     this.state = 'idle';
     logger.info('VoiceModeManager: STOP quickask');
 
+    const t0 = Date.now();
     try {
       this.publishOverlayState('quickask', 'processing');
       floatingWindow.sendStatus('processing');
       const result = await asrService.stop();
+      const tAsr = Date.now();
 
       if (!result?.text?.trim()) {
+        logger.info('voice-timing quickask empty', { asr_stop_ms: tAsr - t0 });
         this.resetOverlayAndHide();
         return;
       }
@@ -416,6 +433,7 @@ export class VoiceModeManager {
       this.publishOverlayState('quickask', 'routing');
       floatingWindow.sendStatus('routing');
       const transcript = await this.cleanTranscript(rawTranscript, 'quickask');
+      const tClean = Date.now();
 
       const context: AgentContext = {
         appName: 'Voice Query',
@@ -427,6 +445,14 @@ export class VoiceModeManager {
       agentWindow.showWithContext(context);
       this.resetOverlayAndHide();
       agentWindow.sendExternalSubmit(transcript, context);
+      const tHandoff = Date.now();
+      logger.info('voice-timing quickask', {
+        asr_stop_ms: tAsr - t0,
+        transcript_clean_ms: tClean - tAsr,
+        handoff_ms: tHandoff - tClean,
+        total_ms: tHandoff - t0,
+        transcript_chars: transcript.length,
+      });
 
     } catch (err) {
       floatingWindow.allowHide();

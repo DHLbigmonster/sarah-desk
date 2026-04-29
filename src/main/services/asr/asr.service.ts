@@ -7,6 +7,7 @@
 import { EventEmitter } from 'events';
 import log from 'electron-log';
 import { VolcengineClient } from './lib/volcengine-client';
+import { AppleSpeechClient, isAppleSpeechAvailable } from './lib/apple-speech-client';
 import { loadASRConfig, ConfigurationError } from './lib/config';
 import { floatingWindow } from '../../windows';
 import type { ASRConfig, ASRResult, ASRStatus } from '../../../shared/types/asr';
@@ -69,7 +70,8 @@ export interface ASRService {
  * ```
  */
 export class ASRService extends EventEmitter {
-  private client: VolcengineClient | null = null;
+  private client: VolcengineClient | AppleSpeechClient | null = null;
+  private usingAppleSpeech = false;
   private status: ASRStatus = 'idle';
   private finalResult: ASRResult | null = null;
   private lastResult: ASRResult | null = null;
@@ -108,6 +110,17 @@ export class ASRService extends EventEmitter {
       envConfig = loadASRConfig();
     } catch (error) {
       if (error instanceof ConfigurationError) {
+        // Try Apple Speech fallback
+        if (isAppleSpeechAvailable()) {
+          logger.info('Volcengine ASR not configured, using Apple Speech fallback');
+          this.usingAppleSpeech = true;
+          this.client = new AppleSpeechClient();
+          this.setupClientListeners();
+          this.updateStatus('connecting');
+          await this.client.connect();
+          logger.info('Apple Speech session started');
+          return;
+        }
         logger.error('ASR configuration error', { message: error.message });
         this.updateStatus('error');
         this.emit('error', error);
@@ -130,6 +143,7 @@ export class ASRService extends EventEmitter {
     };
 
     // Create Volcengine client
+    this.usingAppleSpeech = false;
     this.client = new VolcengineClient(clientConfig);
 
     // Setup event forwarding
@@ -179,11 +193,19 @@ export class ASRService extends EventEmitter {
       return null;
     }
 
-    logger.info('Stopping ASR session');
+    logger.info('Stopping ASR session', { backend: this.usingAppleSpeech ? 'apple-speech' : 'volcengine' });
+
+    if (this.usingAppleSpeech) {
+      // Apple Speech: send finish signal and wait for helper process result
+      this.client.finishAudio();
+      const result = await this.waitForFinalResult();
+      this.cleanup(true);
+      return result;
+    }
 
     // Signal end of audio to get final result
     if (this.client.isConnected) {
-      this.client.finishAudio();
+      (this.client as VolcengineClient).finishAudio();
 
       // Wait for final result with timeout
       const result = await this.waitForFinalResult();
@@ -207,6 +229,12 @@ export class ASRService extends EventEmitter {
       return;
     }
 
+    // Apple Speech buffers all audio until finishAudio — just collect chunks
+    if (this.usingAppleSpeech) {
+      this.client.sendAudio(chunk);
+      return;
+    }
+
     if (this.status === 'connecting' || !this.client.isConnected) {
       if (this.pendingAudioChunks.length >= this.maxPendingAudioChunks) {
         this.pendingAudioChunks.shift();
@@ -220,7 +248,7 @@ export class ASRService extends EventEmitter {
       return;
     }
 
-    this.client.sendAudio(chunk);
+    (this.client as VolcengineClient).sendAudio(chunk);
   }
 
   // ============================================================================
@@ -249,23 +277,27 @@ export class ASRService extends EventEmitter {
   }
 
   /**
-   * Setup event listeners on the Volcengine client.
+   * Setup event listeners on the ASR client (Volcengine or Apple Speech).
    */
   private setupClientListeners(): void {
     if (!this.client) return;
 
-    this.client.on('status', (status) => {
+    // Both VolcengineClient and AppleSpeechClient extend EventEmitter,
+    // so cast to EventEmitter for compatible listener signatures.
+    const emitter = this.client as unknown as EventEmitter;
+
+    emitter.on('status', (status: ASRStatus) => {
       // Terminal client statuses are internal transport lifecycle signals.
       // Higher-level mode handlers own the post-STT HUD state.
       if (status !== 'done' && status !== 'idle') {
         this.updateStatus(status);
       }
-      if (status === 'listening') {
+      if (status === 'listening' && !this.usingAppleSpeech) {
         this.flushPendingAudioChunks();
       }
     });
 
-    this.client.on('result', (result) => {
+    emitter.on('result', (result: ASRResult) => {
       this.lastResult = result;
       if (result.text.trim()) {
         this.lastNonEmptyResult = result;
@@ -279,7 +311,7 @@ export class ASRService extends EventEmitter {
       floatingWindow.sendResult(result);
     });
 
-    this.client.on('error', (error) => {
+    emitter.on('error', (error: Error) => {
       const friendlyMessage = toFriendlyASRErrorMessage(error);
       logger.error('Volcengine client error', { message: error.message, friendlyMessage });
       this.updateStatus('error');
@@ -301,12 +333,13 @@ export class ASRService extends EventEmitter {
 
       const TIMEOUT_MS = 10000; // 10 seconds timeout
       let resolved = false;
+      const emitter = this.client as unknown as EventEmitter | null;
 
       const resultHandler = (result: ASRResult): void => {
         if (result.isFinal && !resolved) {
           resolved = true;
-          this.client?.off('result', resultHandler);
-          this.client?.off('status', statusHandler);
+          emitter?.off('result', resultHandler);
+          emitter?.off('status', statusHandler);
           clearTimeout(timeoutId);
           resolve(result.text.trim() ? result : this.pickBestResult());
         }
@@ -315,14 +348,14 @@ export class ASRService extends EventEmitter {
       const timeoutId = setTimeout(() => {
         if (!resolved) {
           resolved = true;
-          this.client?.off('result', resultHandler);
-          this.client?.off('status', statusHandler);
+          emitter?.off('result', resultHandler);
+          emitter?.off('status', statusHandler);
           logger.warn('Timeout waiting for final result, returning last result');
           resolve(this.pickBestResult());
         }
       }, TIMEOUT_MS);
 
-      this.client?.on('result', resultHandler);
+      emitter?.on('result', resultHandler);
 
       // Also listen for done status as backup
       const statusHandler = (status: ASRStatus): void => {
@@ -331,8 +364,8 @@ export class ASRService extends EventEmitter {
           setTimeout(() => {
             if (!resolved) {
               resolved = true;
-              this.client?.off('result', resultHandler);
-              this.client?.off('status', statusHandler);
+              emitter?.off('result', resultHandler);
+              emitter?.off('status', statusHandler);
               clearTimeout(timeoutId);
               resolve(this.pickBestResult());
             }
@@ -340,7 +373,7 @@ export class ASRService extends EventEmitter {
         }
       };
 
-      this.client?.on('status', statusHandler);
+      emitter?.on('status', statusHandler);
     });
   }
 

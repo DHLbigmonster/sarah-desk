@@ -41,7 +41,7 @@ export function FloatingWindow(): ReactNode {
             aria-label="取消语音输入"
             onClick={() => window.api.pushToTalk.cancel()}
           >
-            <X size={18} strokeWidth={2.4} />
+            <X size={15} strokeWidth={2.4} />
           </button>
         ) : (
           <span className="floating-window__action floating-window__action--ghost" aria-hidden="true" />
@@ -58,7 +58,7 @@ export function FloatingWindow(): ReactNode {
             aria-label="确认并结束语音输入"
             onClick={() => window.api.pushToTalk.confirm()}
           >
-            <Check size={18} strokeWidth={2.4} />
+            <Check size={15} strokeWidth={2.4} />
           </button>
         ) : (
           <span className="floating-window__action floating-window__action--ghost" aria-hidden="true" />

@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
-import { CheckCircle2, Code2, ExternalLink, Loader2, Plus, RefreshCw, Wrench } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, Code2, ExternalLink, Loader2, Plus, RefreshCw, ShieldAlert, Wrench } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import type {
   ClawDeskCliToolDefinition,
   ClawDeskCliToolStatus,
+  OpenClawStatus,
 } from '../../../../shared/types/clawdesk-settings';
 import { Badge } from '../../components/ui/badge';
 import { Button } from '../../components/ui/button';
@@ -34,6 +35,11 @@ export function CliSection({
   const navigate = useNavigate();
   const queuePrompt = useChatStore((state) => state.queuePrompt);
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  const [openClawStatus, setOpenClawStatus] = useState<OpenClawStatus | null>(null);
+
+  useEffect(() => {
+    void window.api.clawDesk.getOpenClawStatus().then(setOpenClawStatus);
+  }, []);
 
   const statusMap = useMemo(() => new Map(statuses.map((item) => [item.id, item])), [statuses]);
 
@@ -76,8 +82,66 @@ export function CliSection({
     toast.success(`已把 ${tool.name} 的安装请求发送到 Chat Workspace`);
   }, [buildInstallPrompt, navigate, queuePrompt]);
 
+  const handleRefreshOpenClaw = useCallback(() => {
+    void window.api.clawDesk.getOpenClawStatus().then(setOpenClawStatus);
+  }, []);
+
   return (
     <div className="space-y-6">
+      {/* Open Claw Status Card */}
+      <Card className={openClawStatus?.installed && openClawStatus?.authenticated
+        ? 'border-green-500/30 bg-green-500/5'
+        : openClawStatus?.installed
+          ? 'border-amber-500/30 bg-amber-500/5'
+          : 'border-red-500/20 bg-red-500/5'
+      }>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center justify-between text-base">
+            <span className="flex items-center gap-2">
+              {openClawStatus?.installed && openClawStatus?.authenticated ? (
+                <><CheckCircle2 className="h-4 w-4 text-green-500" /> Open Claw — 就绪</>
+              ) : openClawStatus?.installed ? (
+                <><ShieldAlert className="h-4 w-4 text-amber-500" /> Open Claw — 已安装，未登录</>
+              ) : openClawStatus === null ? (
+                <><Loader2 className="h-4 w-4 animate-spin" /> Open Claw — 检测中…</>
+              ) : (
+                <><ShieldAlert className="h-4 w-4 text-red-500" /> Open Claw — 未安装</>
+              )}
+            </span>
+            <Button type="button" variant="ghost" size="sm" onClick={handleRefreshOpenClaw}>
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {openClawStatus?.installed && openClawStatus?.authenticated ? (
+            <p className="text-sm text-muted-foreground">
+              Open Claw CLI 已安装{openClawStatus.version ? ` (v${openClawStatus.version})` : ''}且已登录。Mode 2（语音代理）和 Mode 3（截图代理）可以正常使用。
+            </p>
+          ) : openClawStatus?.installed ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Open Claw CLI 已安装但尚未登录。请在终端运行 <code className="rounded bg-background/60 px-1.5 py-0.5 font-mono text-xs">openclaw login</code> 完成认证。
+              </p>
+              <Button type="button" size="sm" className="gap-1" onClick={() => sendToolPromptToChat(catalog.find((t) => t.id === 'openclaw') ?? { id: 'openclaw', name: 'OpenClaw CLI', description: '', category: 'agent', command: 'openclaw', versionArgs: [['--version']], recommended: true, source: '', installCommand: 'brew install openclaw', detailIntro: '', docsUrl: null, repoUrl: null, authRequired: true, postInstallNotes: [] })}>
+                <Plus className="h-3.5 w-3.5" />发送登录指引到 Chat
+              </Button>
+            </div>
+          ) : openClawStatus === null ? (
+            <p className="text-sm text-muted-foreground">正在检测 Open Claw 安装状态…</p>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Open Claw CLI 未安装。它是 Mode 2（语音代理）和 Mode 3（截图代理）的必要依赖。Mode 1（听写）不需要它。
+              </p>
+              <Button type="button" size="sm" className="gap-1" onClick={() => sendToolPromptToChat(catalog.find((t) => t.id === 'openclaw') ?? { id: 'openclaw', name: 'OpenClaw CLI', description: '', category: 'agent', command: 'openclaw', versionArgs: [['--version']], recommended: true, source: '', installCommand: 'brew install openclaw', detailIntro: '', docsUrl: null, repoUrl: null, authRequired: true, postInstallNotes: [] })}>
+                <Plus className="h-3.5 w-3.5" />安装 Open Claw
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           本机 CLI 工具检测。可以看详情，也可以一键把安装提示送进 Chat Workspace。

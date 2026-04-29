@@ -25,14 +25,14 @@ export function AudioWaveform({ level, active = false, tone = 'default' }: Audio
       setBars((currentBars) => currentBars.map((currentHeight, index) => {
         const centerIndex = (currentBars.length - 1) / 2;
         const distance = Math.abs(index - centerIndex);
-        const responsiveness = 1 - (distance * 0.14);
-        const baseline = active ? 0.34 : 0.2;
-        const energy = active ? Math.max(level, 0.12) : 0.08;
-        const randomFactor = 0.65 + Math.random() * 0.5;
+        const responsiveness = 1 - (distance * 0.12);
+        const baseline = active ? 0.32 : 0.18;
+        const energy = active ? Math.max(level, 0.1) : 0.07;
+        const randomFactor = 0.7 + Math.random() * 0.55;
         const targetHeight = Math.min(1, baseline + (energy * responsiveness * randomFactor));
-        return currentHeight + (targetHeight - currentHeight) * 0.45;
+        return currentHeight + (targetHeight - currentHeight) * 0.6;
       }));
-    }, active ? 72 : 140);
+    }, active ? 55 : 130);
 
     return () => window.clearInterval(intervalId);
   }, [active, level]);
@@ -44,9 +44,9 @@ export function AudioWaveform({ level, active = false, tone = 'default' }: Audio
           key={index}
           className="audio-waveform__bar"
           style={{
-            height: `${Math.max(4, height * 18)}px`,
+            height: `${Math.max(3, height * 16)}px`,
             opacity: 0.48 + (height * 0.5),
-            animationDelay: `${index * 70}ms`,
+            animationDelay: `${index * 60}ms`,
           }}
         />
       ))}

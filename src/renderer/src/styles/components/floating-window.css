@@ -16,8 +16,8 @@ body {
 }
 
 .floating-window {
-  width: 184px;
-  height: 48px;
+  width: 150px;
+  height: 40px;
   background: transparent;
   overflow: visible;
   font-family: 'Geist Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -30,12 +30,12 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 7px;
+  padding: 0 6px;
   border-radius: 999px;
   background: rgba(16, 16, 18, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
-    0 14px 28px rgba(0, 0, 0, 0.38),
+    0 8px 18px rgba(0, 0, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.1);
   backdrop-filter: blur(18px) saturate(1.12);
   -webkit-app-region: no-drag;
@@ -44,14 +44,14 @@ body {
 .floating-window__content.is-error {
   border-color: rgba(220, 87, 72, 0.5);
   box-shadow:
-    0 14px 30px rgba(0, 0, 0, 0.42),
+    0 8px 20px rgba(0, 0, 0, 0.32),
     0 0 0 1px rgba(220, 87, 72, 0.18),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 .floating-window__action {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.12);
@@ -91,7 +91,7 @@ body {
 }
 
 .floating-window__wave {
-  width: 90px;
+  width: 72px;
   height: 100%;
   display: flex;
   align-items: center;
@@ -100,24 +100,24 @@ body {
 
 .audio-waveform {
   width: 100%;
-  height: 24px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .audio-waveform__bar {
-  width: 4px;
-  min-height: 4px;
+  width: 3px;
+  min-height: 3px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.96);
   transform-origin: center;
-  animation: floating-wave-idle 1.15s ease-in-out infinite;
+  animation: floating-wave-idle 1.05s ease-in-out infinite;
 }
 
 .audio-waveform.is-active .audio-waveform__bar {
-  animation-duration: 0.72s;
+  animation-duration: 0.55s;
 }
 
 .audio-waveform--busy .audio-waveform__bar {

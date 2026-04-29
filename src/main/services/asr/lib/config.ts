@@ -1,28 +1,10 @@
 /**
  * ASR configuration loader.
- * Loads Volcengine ASR credentials from environment variables.
+ * Delegates to the central config resolver (credential store first, then .env fallback).
  */
 
-import { VOLCENGINE_CONSTANTS } from '../types';
-
-/**
- * ASR environment configuration.
- */
-export interface ASREnvConfig {
-  appId: string;
-  accessToken: string;
-  resourceId: string;
-  enableNonstream: boolean;
-  boostingTableId?: string;
-  boostingTableName?: string;
-  correctTableId?: string;
-  correctTableName?: string;
-}
-
-function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
-  if (value == null || value === '') return fallback;
-  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
-}
+import { resolveVolcengineConfig, resolve, isFromCredentialStore } from '../../config/resolve-config';
+import type { ASREnvConfig } from '../../config/resolve-config';
 
 /**
  * Configuration error when required environment variables are missing.
@@ -35,62 +17,25 @@ export class ConfigurationError extends Error {
 }
 
 /**
- * Load ASR configuration from environment variables.
- *
- * Required environment variables:
- * - VOLCENGINE_APP_ID: Application ID from Volcengine console
- * - VOLCENGINE_ACCESS_TOKEN: Access token for authentication
- *
- * Optional environment variables:
- * - VOLCENGINE_RESOURCE_ID: Resource ID (default: "volc.bigasr.sauc.duration")
- *
- * @returns ASR configuration object
+ * Load ASR configuration.
  * @throws ConfigurationError if required variables are missing
  */
 export function loadASRConfig(): ASREnvConfig {
-  const appId = process.env.VOLCENGINE_APP_ID;
-  const accessToken = process.env.VOLCENGINE_ACCESS_TOKEN;
-  const resourceId =
-    process.env.VOLCENGINE_RESOURCE_ID ?? VOLCENGINE_CONSTANTS.DEFAULT_RESOURCE_ID;
-  const enableNonstream = parseBooleanEnv(process.env.VOLCENGINE_ENABLE_NONSTREAM, true);
-  const boostingTableId = process.env.VOLCENGINE_BOOSTING_TABLE_ID?.trim() || undefined;
-  const boostingTableName = process.env.VOLCENGINE_BOOSTING_TABLE_NAME?.trim() || undefined;
-  const correctTableId = process.env.VOLCENGINE_CORRECT_TABLE_ID?.trim() || undefined;
-  const correctTableName = process.env.VOLCENGINE_CORRECT_TABLE_NAME?.trim() || undefined;
-
-  const missingVars: string[] = [];
-
-  if (!appId) {
-    missingVars.push('VOLCENGINE_APP_ID');
-  }
-
-  if (!accessToken) {
-    missingVars.push('VOLCENGINE_ACCESS_TOKEN');
-  }
-
-  if (missingVars.length > 0) {
+  try {
+    return resolveVolcengineConfig();
+  } catch (err) {
+    // Re-throw as ConfigurationError for backward compatibility with asr.service.ts
     throw new ConfigurationError(
-      `Missing required environment variables: ${missingVars.join(', ')}`
+      err instanceof Error ? err.message : String(err),
     );
   }
-
-  return {
-    appId: appId as string,
-    accessToken: accessToken as string,
-    resourceId,
-    enableNonstream,
-    boostingTableId,
-    boostingTableName,
-    correctTableId,
-    correctTableName,
-  };
 }
 
 /**
  * Check if ASR configuration is available without throwing.
- *
- * @returns true if all required environment variables are set
  */
 export function isASRConfigured(): boolean {
-  return Boolean(process.env.VOLCENGINE_APP_ID && process.env.VOLCENGINE_ACCESS_TOKEN);
+  return Boolean(resolve('VOLCENGINE_APP_ID') && resolve('VOLCENGINE_ACCESS_TOKEN'));
 }
+
+export type { ASREnvConfig };

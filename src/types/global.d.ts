@@ -22,6 +22,7 @@ import type {
   ClawDeskThemeMode,
   HotkeyConfig,
   HotkeyCheckResult,
+  OpenClawStatus,
 } from '../shared/types/clawdesk-settings';
 import type { MiniStatus } from '../shared/types/mini';
 
@@ -104,6 +105,10 @@ interface ClawDeskApi {
   checkToggleWindow: (accelerator: string) => Promise<HotkeyCheckResult>;
   voiceInputToggle: () => Promise<{ recording: boolean; error?: string } | { text?: string; error?: string }>;
   voiceInputStop: () => Promise<{ text?: string; error?: string }>;
+  getConfigKeys: (provider: 'voice' | 'text') => Promise<Record<string, string>>;
+  setConfigKey: (key: string, value: string) => Promise<{ success: boolean }>;
+  deleteConfigKey: (key: string) => Promise<{ success: boolean }>;
+  getOpenClawStatus: () => Promise<OpenClawStatus>;
 }
 
 interface MiniApi {

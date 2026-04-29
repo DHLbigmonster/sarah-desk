@@ -26,6 +26,7 @@ import type {
   ClawDeskThemeMode,
   HotkeyConfig,
   HotkeyCheckResult,
+  OpenClawStatus,
 } from './shared/types/clawdesk-settings';
 import type { MiniStatus } from './shared/types/mini';
 
@@ -311,6 +312,18 @@ const clawDeskApi = {
 
   voiceInputStop: (): Promise<{ text?: string; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.VOICE_INPUT_STOP),
+
+  getConfigKeys: (provider: 'voice' | 'text'): Promise<Record<string, string>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.CONFIG_GET_PROVIDER_KEYS, provider),
+
+  setConfigKey: (key: string, value: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.CONFIG_SET_PROVIDER_KEY, key, value),
+
+  deleteConfigKey: (key: string): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.CONFIG_DELETE_PROVIDER_KEY, key),
+
+  getOpenClawStatus: (): Promise<OpenClawStatus> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_OPENCLAW_STATUS),
 };
 
 const miniApi = {

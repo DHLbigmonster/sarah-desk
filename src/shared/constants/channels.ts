@@ -109,6 +109,14 @@ export const IPC_CHANNELS = {
     VOICE_INPUT_TOGGLE: 'claw-desk:voice-input-toggle',
     /** Stop voice input and return transcript (same as toggle when recording) */
     VOICE_INPUT_STOP: 'claw-desk:voice-input-stop',
+    /** Get decrypted config keys for a provider (voice or text) */
+    CONFIG_GET_PROVIDER_KEYS: 'claw-desk:config-get-provider-keys',
+    /** Save a single config key (encrypted) */
+    CONFIG_SET_PROVIDER_KEY: 'claw-desk:config-set-provider-key',
+    /** Delete a config key (falls back to .env) */
+    CONFIG_DELETE_PROVIDER_KEY: 'claw-desk:config-delete-provider-key',
+    /** Get Open Claw installation and auth status */
+    GET_OPENCLAW_STATUS: 'claw-desk:get-openclaw-status',
   },
   MINI: {
     /** Read current Mini runtime status for the settings window */

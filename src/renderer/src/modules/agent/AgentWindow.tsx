@@ -14,8 +14,52 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { AgentContext, AgentMessage } from '../../../../shared/types/agent';
 import { ContextBar } from './components/ContextBar';
+
+function CodeBlockCopyButton({ code }: { code: string }): ReactNode {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    void navigator.clipboard.writeText(code).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [code]);
+  return (
+    <button
+      className="agent-window__code-copy-btn"
+      onClick={handleCopy}
+      title="复制代码"
+      aria-label="复制代码"
+      data-copied={copied}
+    >
+      {copied ? (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+      ) : (
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
+/** Extract plain text from ReactMarkdown code children for clipboard. */
+function extractCodeText(children: ReactNode): string {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children)) {
+    return children.map(extractCodeText).join('');
+  }
+  if (children && typeof children === 'object' && 'props' in children) {
+    return extractCodeText((children as { props: { children?: ReactNode } }).props.children);
+  }
+  return '';
+}
 
 function findLatestMessage(messages: AgentMessage[], role: AgentMessage['role']): AgentMessage | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -30,18 +74,43 @@ export function AgentWindow(): ReactNode {
   const [context, setContext] = useState<AgentContext | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const streamingIdRef = useRef<string | null>(null);
   const firstChunkNotifiedRef = useRef(false);
 
   const syncVisibleAnswer = useCallback((assistantMessage: AgentMessage | null) => {
-    // Directly show full content without animation
     return assistantMessage?.content ?? '';
   }, []);
 
   const handleHide = useCallback(() => {
     void window.api.agent.hide();
   }, []);
+
+  const handleCopy = useCallback((text: string) => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    const userMsg = findLatestMessage(messages, 'user');
+    if (!userMsg || !context) return;
+    void window.api.agent.sendInstruction(userMsg.content, context);
+    const assistantMsg: AgentMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      isStreaming: true,
+    };
+    setMessages([userMsg, assistantMsg]);
+    setIsStreaming(true);
+    setCopied(false);
+    streamingIdRef.current = assistantMsg.id;
+    firstChunkNotifiedRef.current = false;
+  }, [messages, context]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -60,6 +129,7 @@ export function AgentWindow(): ReactNode {
       setMessages([]);
       setContext(payload.context);
       setIsStreaming(false);
+      setCopied(false);
       if (streamingIdRef.current) {
         streamingIdRef.current = null;
       }
@@ -130,6 +200,7 @@ export function AgentWindow(): ReactNode {
 
       setContext(payload.context);
       setIsStreaming(true);
+      setCopied(false);
       streamingIdRef.current = assistantMessage.id;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -155,6 +226,7 @@ export function AgentWindow(): ReactNode {
 
       setContext(payload.context);
       setIsStreaming(false);
+      setCopied(false);
       streamingIdRef.current = null;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -176,8 +248,8 @@ export function AgentWindow(): ReactNode {
   const showCursor = isStreaming;
   const showThinking = !visibleAnswer && isStreaming;
 
-  const statusState = showThinking ? 'thinking' : isStreaming ? 'streaming' : 'done';
-  const statusLabel = showThinking ? '正在生成' : isStreaming ? '正在输出' : '已完成';
+  const statusState = isStreaming ? 'thinking' : 'done';
+  const statusLabel = isStreaming ? '正在思考' : '已完成';
 
   return (
     <div className="agent-window">
@@ -196,11 +268,27 @@ export function AgentWindow(): ReactNode {
         <ContextBar context={context} />
       </div>
 
-      <div className="agent-window__question-shell">
-        <div className="agent-window__question">
-          {latestUser?.content ?? '等待新的语音问题…'}
+      {latestUser?.content && (
+        <div className="agent-window__question-shell">
+          <div className="agent-window__question">
+            {latestUser.content}
+          </div>
+          {!isStreaming && (
+            <button
+              className="agent-window__retry-btn"
+              onClick={handleRetry}
+              title="重新提问"
+              aria-label="重新提问"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="1 4 1 10 7 10" />
+                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+              </svg>
+              重试
+            </button>
+          )}
         </div>
-      </div>
+      )}
 
       <div className="agent-window__answer-shell">
         <div className="agent-window__answer-header">
@@ -210,26 +298,64 @@ export function AgentWindow(): ReactNode {
           >
             {statusLabel}
           </div>
+          {visibleAnswer && !isStreaming && (
+            <button
+              className="agent-window__copy-btn"
+              onClick={() => handleCopy(visibleAnswer)}
+              title="复制回答"
+              aria-label="复制回答"
+              data-copied={copied}
+            >
+              {copied ? (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
+              ) : (
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+            </button>
+          )}
         </div>
 
         <div className="agent-window__answer-body">
           {showThinking ? (
             <ThinkingState />
           ) : (
-            <pre className="agent-window__answer-text">
-              {visibleAnswer || ' '}
+            <div className="agent-window__answer-text">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  pre: ({ children, ...props }) => {
+                    const codeText = extractCodeText(children);
+                    return (
+                      <div className="agent-window__code-block-wrapper">
+                        <pre className="agent-window__code-block" {...props}>{children}</pre>
+                        {codeText && <CodeBlockCopyButton code={codeText} />}
+                      </div>
+                    );
+                  },
+                  code: ({ className, children, ...props }) => (
+                    <code className={`agent-window__code${className ? ` ${className}` : ''}`} {...props}>{children}</code>
+                  ),
+                }}
+              >
+                {visibleAnswer}
+              </ReactMarkdown>
               {showCursor && <span className="agent-window__cursor" aria-hidden="true" />}
-            </pre>
+            </div>
           )}
         </div>
       </div>
 
       <div className="agent-window__footer">
         <span>
-          追问 <kbd>⌃</kbd> <kbd>Space</kbd>
+          快捷提问 <kbd>⌃</kbd> / <kbd>⌃</kbd><kbd>Space</kbd>
         </span>
         <span>
-          命令 <kbd>⌃</kbd> <kbd>Shift</kbd>
+          命令 <kbd>⌃</kbd><kbd>⇧</kbd>
         </span>
         <span>
           关闭 <kbd>Esc</kbd>
@@ -245,7 +371,7 @@ function ThinkingState(): ReactNode {
       <span className="agent-window__thinking-dot" />
       <span className="agent-window__thinking-dot" />
       <span className="agent-window__thinking-dot" />
-      <span className="agent-window__thinking-text">正在等待 OpenClaw 返回内容…</span>
+      <span className="agent-window__thinking-text">正在思考…</span>
     </div>
   );
 }

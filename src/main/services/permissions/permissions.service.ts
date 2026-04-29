@@ -130,10 +130,16 @@ export class PermissionsService {
       logger.info('Accessibility permission OK');
     }
 
-    // 3. Input Monitoring — no API to check. Always remind because without it
-    // the keyboard hook can initialize successfully but receive zero events.
-    missing.push('输入监控');
-    logger.warn('Reminding user to grant Input Monitoring in System Settings');
+    // 3. Input Monitoring — no API to check. Heuristic: if Accessibility is
+    // granted we assume Input Monitoring is granted too (they sit on the same
+    // System Settings page and users almost always toggle them together).
+    // Only nag when Accessibility is also missing — that's first-run setup.
+    // If hotkeys actually don't fire, the user will tell us; nagging on every
+    // launch when permissions are already correct is worse than rare misses.
+    if (!a11yGranted) {
+      missing.push('输入监控');
+      logger.warn('Reminding user to grant Input Monitoring (accessibility also missing)');
+    }
 
     // 4. Screen Recording — required by `screencapture` (Command mode context capture).
     // Read-only check; no programmatic prompt is available.

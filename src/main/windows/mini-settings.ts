@@ -9,8 +9,8 @@ declare const MINI_SETTINGS_WINDOW_VITE_NAME: string;
 const logger = log.scope('mini-settings-window');
 
 const MINI_SETTINGS_CONFIG = {
-  WIDTH: 460,
-  HEIGHT: 520,
+  WIDTH: 380,
+  HEIGHT: 380,
 } as const;
 
 export class MiniSettingsWindowManager {
@@ -27,7 +27,7 @@ export class MiniSettingsWindowManager {
       maximizable: false,
       show: false,
       title: 'Sarah Settings',
-      backgroundColor: '#f3f3ee',
+      backgroundColor: '#1a1a1a',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 14, y: 16 },
       webPreferences: {

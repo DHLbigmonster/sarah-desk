@@ -19,6 +19,7 @@ import { setupAllIpcHandlers } from './main/ipc';
 import { floatingWindow, agentWindow, clawDeskMainWindow, miniSettingsWindow, setQuitting } from './main/windows';
 import { voiceModeManager } from './main/services/push-to-talk/voice-mode-manager';
 import { permissionsService } from './main/services/permissions';
+import { firstLaunchService } from './main/services/permissions/first-launch.service';
 import { trayStateService } from './main/services/tray/tray-state.service';
 import { commandResultStore } from './main/services/tray/command-result.store';
 import { IPC_CHANNELS } from './shared/constants/channels';
@@ -175,6 +176,8 @@ async function getMiniStatus(): Promise<MiniStatus> {
   const gatewayUrl = `http://${gateway.endpoint}`;
   const micStatus = permissionsService.getMicrophoneStatus();
   const accessibilityGranted = permissionsService.getAccessibilityStatus();
+  const screenRecordingStatus = permissionsService.getScreenRecordingStatus();
+  const asrConfigured = isASRConfigured();
 
   return {
     mode: 'mini',
@@ -184,8 +187,8 @@ async function getMiniStatus(): Promise<MiniStatus> {
       detail: gateway.detail,
     },
     asrProvider: {
-      name: 'Volcengine ASR',
-      configured: isASRConfigured(),
+      name: asrConfigured ? 'Volcengine ASR' : 'Apple Speech (local)',
+      configured: asrConfigured,
       detail: micStatus === 'granted' ? 'Microphone granted' : `Microphone ${micStatus}`,
     },
     refinementProvider: {
@@ -202,6 +205,12 @@ async function getMiniStatus(): Promise<MiniStatus> {
       created: Boolean(recorderWindow && !recorderWindow.isDestroyed()),
       ready: recorderWindowReady && recorderRendererReady,
       asrStatus: asrService.currentStatus,
+    },
+    permissions: {
+      microphone: micStatus,
+      accessibility: accessibilityGranted,
+      screenRecording: screenRecordingStatus,
+      inputMonitoring: voiceModeManager.isReady,
     },
   };
 }
@@ -565,7 +574,30 @@ app.on('ready', async () => {
     execPath: process.execPath,
   });
   if (missing.length > 0 && !smokeTestMode) {
-    permissionsService.showPermissionNotification(missing);
+    if (firstLaunchService.isFirstLaunch()) {
+      // Enhanced first-launch notification with clear instructions
+      if (Notification.isSupported()) {
+        const n = new Notification({
+          title: '欢迎使用 Sarah! 首次设置',
+          body: [
+            'Sarah 需要以下系统权限才能正常工作：',
+            '',
+            missing.map((p) => `  - ${p}`).join('\n'),
+            '',
+            '请在「系统设置 → 隐私与安全性」中逐一启用，然后重启 Sarah。',
+            'Mode 1（听写）不需要 Open Claw 或火山引擎配置即可使用。',
+          ].join('\n'),
+          silent: false,
+        });
+        n.on('click', () => {
+          permissionsService.openKeyboardPermissionSettings();
+        });
+        n.show();
+      }
+      firstLaunchService.markComplete();
+    } else {
+      permissionsService.showPermissionNotification(missing);
+    }
   }
 
   logger.info('sarah-desk ready in Mini mode. Sarah Debug Console stays hidden until explicitly opened.');

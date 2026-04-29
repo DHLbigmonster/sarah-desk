@@ -11,8 +11,8 @@ import { IPC_CHANNELS } from '../../shared/constants/channels';
 import { getIsAppQuitting } from '../app-lifecycle';
 
 const FLOATING_WINDOW_CONFIG = {
-  WIDTH: 184,
-  HEIGHT: 48,
+  WIDTH: 150,
+  HEIGHT: 40,
   BOTTOM_OFFSET: 90,
   AUTO_HIDE_DELAY: 2000,
 } as const;

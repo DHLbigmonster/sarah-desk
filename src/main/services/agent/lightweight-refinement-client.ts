@@ -1,39 +1,19 @@
 import log from 'electron-log';
+import { resolveArkConfig } from '../config/resolve-config';
+import type { LightweightRefinementConfig } from '../config/resolve-config';
 
 const logger = log.scope('lightweight-refinement-client');
-
-const DEFAULT_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
-const DEFAULT_TIMEOUT_MS = 4500;
-const DEFAULT_MAX_TOKENS = 220;
-const DEFAULT_TEMPERATURE = 0.2;
 
 interface ChatMessage {
   role: 'system' | 'user';
   content: string;
 }
 
-export interface LightweightRefinementConfig {
-  apiKey: string;
-  baseUrl: string;
-  targetModel: string;
-  timeoutMs: number;
-  maxTokens: number;
-  temperature: number;
-}
+export type { LightweightRefinementConfig };
 
 export interface LightweightRefinementRequest {
   systemPrompt: string;
   userPrompt: string;
-}
-
-function parseInteger(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function parseFloatNumber(value: string | undefined, fallback: number): number {
-  const parsed = Number.parseFloat(value ?? '');
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function joinUrl(baseUrl: string, pathname: string): string {
@@ -61,26 +41,7 @@ function extractTextContent(content: unknown): string {
 }
 
 export function loadLightweightRefinementConfig(): LightweightRefinementConfig | null {
-  const apiKey = process.env.ARK_API_KEY?.trim();
-  const endpointId = process.env.DICTATION_REFINEMENT_ENDPOINT_ID?.trim();
-  const model = process.env.DICTATION_REFINEMENT_MODEL?.trim();
-  const targetModel = endpointId || model;
-
-  if (!apiKey || !targetModel) {
-    return null;
-  }
-
-  return {
-    apiKey,
-    baseUrl: process.env.DICTATION_REFINEMENT_BASE_URL?.trim() || DEFAULT_BASE_URL,
-    targetModel,
-    timeoutMs: parseInteger(process.env.DICTATION_REFINEMENT_TIMEOUT_MS, DEFAULT_TIMEOUT_MS),
-    maxTokens: parseInteger(process.env.DICTATION_REFINEMENT_MAX_TOKENS, DEFAULT_MAX_TOKENS),
-    temperature: parseFloatNumber(
-      process.env.DICTATION_REFINEMENT_TEMPERATURE,
-      DEFAULT_TEMPERATURE,
-    ),
-  };
+  return resolveArkConfig();
 }
 
 export class LightweightRefinementClient {

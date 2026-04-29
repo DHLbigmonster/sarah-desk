@@ -25,6 +25,8 @@ export interface ClawDeskProviderSummaryItem {
   envExamplePath: string;
   guidance: string[];
   documentationUrl: string | null;
+  /** Where the config is sourced from: 'env' (.env file) or 'settings' (GUI-stored) */
+  configSource?: 'env' | 'settings';
 }
 
 export interface ClawDeskSkillItem {
@@ -66,6 +68,13 @@ export interface ClawDeskCliToolStatus {
   version: string | null;
   path: string | null;
   checkedAt: number;
+}
+
+export interface OpenClawStatus {
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  authenticated: boolean;
 }
 
 export interface ClawDeskSettingsOverview {

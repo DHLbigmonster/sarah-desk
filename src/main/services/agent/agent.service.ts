@@ -15,8 +15,6 @@ import path from 'node:path';
 import os from 'node:os';
 import log from 'electron-log';
 import { memoryService } from './memory.service';
-import { intentRouter, logIntentDecision } from './intent-router.service';
-import { lightweightRefinementClient } from './lightweight-refinement-client';
 import type { AgentContext } from '../../../shared/types/agent';
 import type { AgentMemory } from './memory.service';
 
@@ -136,6 +134,9 @@ export class AgentService extends EventEmitter {
   private running = false;
   private runVersion = 0;
 
+  /** Queue for tasks submitted while another is running. */
+  private pendingExecution: { instruction: string; context: AgentContext; resolve: () => void } | null = null;
+
   /** Resolved absolute paths (lazy, set on first execute) */
   private openclawBin = 'openclaw';
   private larkBin: string | null = null;
@@ -166,8 +167,10 @@ export class AgentService extends EventEmitter {
     this.initialize();
 
     if (this.running) {
-      logger.warn('AgentService: aborting previous run');
-      this.abort();
+      logger.info('AgentService: task already running, queuing new request');
+      return new Promise<void>((resolve) => {
+        this.pendingExecution = { instruction, context, resolve };
+      });
     }
 
     this.running = true;
@@ -177,25 +180,11 @@ export class AgentService extends EventEmitter {
       app: context.appName,
     });
 
-    const decision = intentRouter.classify(instruction);
-    logIntentDecision(instruction, decision);
-
-    if (decision.tier === 't1' && lightweightRefinementClient.isConfigured()) {
-      const handled = await this.runQuickAnswer(runVersion, instruction);
-      if (runVersion !== this.runVersion) {
-        return;
-      }
-      if (handled) {
-        this.running = false;
-        return;
-      }
-      logger.info('Quick answer fallback to agent', { reason: 't1-failed' });
-    }
-
     const memory = memoryService.load();
     const prompt = this.buildPrompt(instruction, context, memory);
 
     return new Promise<void>((resolve) => {
+      const tSpawn = Date.now();
       const proc = spawn(
         this.openclawBin,
         [
@@ -216,12 +205,16 @@ export class AgentService extends EventEmitter {
       let fullResponse = '';
       let stdoutBuf = '';
       let stderrBuf = '';
+      let tFirstStdout = 0;
+      let tFirstStderr = 0;
 
       proc.stdout.on('data', (chunk: Buffer) => {
+        if (tFirstStdout === 0) tFirstStdout = Date.now();
         stdoutBuf += chunk.toString();
       });
 
       proc.stderr.on('data', (chunk: Buffer) => {
+        if (tFirstStderr === 0) tFirstStderr = Date.now();
         const data = chunk.toString();
         stderrBuf += data;
         logger.debug('openclaw stderr', { data: data.slice(0, 300) });
@@ -229,6 +222,7 @@ export class AgentService extends EventEmitter {
 
       proc.on('close', (code) => {
         void (async () => {
+          const tClose = Date.now();
           if (runVersion !== this.runVersion) {
             resolve();
             return;
@@ -237,6 +231,15 @@ export class AgentService extends EventEmitter {
           this.running = false;
           this.proc = null;
           const parsed = parseOpenClawResponse(stdoutBuf);
+          logger.info('openclaw-timing', {
+            spawn_to_first_stderr_ms: tFirstStderr ? tFirstStderr - tSpawn : null,
+            spawn_to_first_stdout_ms: tFirstStdout ? tFirstStdout - tSpawn : null,
+            spawn_to_close_ms: tClose - tSpawn,
+            stdout_bytes: stdoutBuf.length,
+            stderr_bytes: stderrBuf.length,
+            exit_code: code,
+            parsed_chars: parsed?.text?.length ?? 0,
+          });
 
           if (code === 0 || code === null) {
             if (parsed?.text) {
@@ -263,6 +266,7 @@ export class AgentService extends EventEmitter {
               this.emit('error', message);
             }
           }
+          this.drainQueue();
           resolve();
         })();
       });
@@ -280,13 +284,28 @@ export class AgentService extends EventEmitter {
             ? `openclaw CLI 未找到 (尝试路径: ${this.openclawBin})。请先安装并确认 \`openclaw\` 命令可用。`
             : `无法启动 openclaw CLI: ${err.message}`;
         this.emit('error', message);
+        this.drainQueue();
         resolve();
       });
     });
   }
 
-  abort(): void {
+  /**
+   * Kill the current OpenClaw process.
+   * @param emitDone - whether to emit 'done'. Pass `false` when calling from
+   *   execute() so the UI does not flash "已完成" before the new run starts.
+   */
+  abort(emitDone = true): void {
+    // Clear any queued task so it doesn't run after abort.
+    if (this.pendingExecution) {
+      this.pendingExecution.resolve();
+      this.pendingExecution = null;
+    }
+
     if (!this.running && !this.proc) {
+      if (emitDone) {
+        this.emit('done');
+      }
       return;
     }
 
@@ -296,54 +315,26 @@ export class AgentService extends EventEmitter {
       this.proc = null;
     }
     this.running = false;
-    this.emit('done');
+    if (emitDone) {
+      this.emit('done');
+    }
     logger.info('AgentService: aborted');
+  }
+
+  /** Run the next queued task if one exists. Called after each task completes. */
+  private drainQueue(): void {
+    const pending = this.pendingExecution;
+    if (!pending) return;
+    this.pendingExecution = null;
+    logger.info('AgentService: draining queued task', {
+      instruction: pending.instruction.slice(0, 80),
+    });
+    // Fire and forget — the queued caller's promise resolves when this run ends.
+    void this.execute(pending.instruction, pending.context).then(() => pending.resolve());
   }
 
   get isRunning(): boolean {
     return this.running;
-  }
-
-  // ─── T1 Quick Answer ────────────────────────────────────────────────────────
-
-  /**
-   * Quick answer path: bypass OpenClaw, ask the Ark lightweight model directly.
-   * Returns true if the answer was emitted; false if the caller should fall
-   * back to the full agent path.
-   */
-  private async runQuickAnswer(runVersion: number, instruction: string): Promise<boolean> {
-    try {
-      const answer = await lightweightRefinementClient.refine({
-        systemPrompt:
-          '你是用户的中文助手。用户的问题不涉及网页、文件、命令、飞书等外部工具，' +
-          '请直接、简洁、准确地回答。' +
-          '回答风格：1) 中文；2) 不超过 4 句话或 80 个字；3) 不需要的客套与免责声明全部省略；' +
-          '4) 如果问题确实需要外部工具或多步操作才能回答，仅返回一个英文 token：NEED_AGENT。',
-        userPrompt: instruction,
-      });
-      const text = answer?.trim();
-
-      if (!text || text === 'NEED_AGENT' || /^NEED[_\s]?AGENT$/i.test(text)) {
-        logger.info('Quick answer declined by model', { reason: text || 'empty' });
-        return false;
-      }
-
-      if (runVersion !== this.runVersion) {
-        return true;
-      }
-
-      await this.emitVisibleText(runVersion, text);
-      memoryService.appendAction(instruction, text);
-
-      if (runVersion === this.runVersion) {
-        this.emit('done');
-      }
-      return true;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn('Quick answer failed', { message: message.slice(0, 200) });
-      return false;
-    }
   }
 
   // ─── Prompt ────────────────────────────────────────────────────────────────
