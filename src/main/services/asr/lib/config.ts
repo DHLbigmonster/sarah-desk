@@ -3,7 +3,7 @@
  * Delegates to the central config resolver (credential store first, then .env fallback).
  */
 
-import { resolveVolcengineConfig, resolve, isFromCredentialStore } from '../../config/resolve-config';
+import { resolveVolcengineConfig, resolve } from '../../config/resolve-config';
 import type { ASREnvConfig } from '../../config/resolve-config';
 
 /**

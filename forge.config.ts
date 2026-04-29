@@ -9,7 +9,6 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import path from 'path';
 import { cp, mkdir } from 'fs/promises';
-import { execSync } from 'child_process';
 
 // Native modules that need special handling for packaging
 const nativeModules = [
