@@ -10,9 +10,9 @@ Sarah operates in three modes, each triggered by a keyboard chord:
 
 | Mode | Hotkey | What Happens |
 |------|--------|--------------|
-| **Dictation** | Hold trigger key (default: Right Ctrl) | Speak → text appears at cursor in any app |
-| **Command** | Hold trigger key + Shift | Speak → AI agent executes your instruction (open apps, search the web, write to Feishu, etc.) |
-| **Quick Ask** | Hold trigger key + Space | Speak → AI answers your question in an overlay panel |
+| **Dictation** | Press trigger key (default: Right Ctrl) once to start, once to stop | Speak → text appears at cursor in any app |
+| **Command** | Press trigger key + Shift once to start, once to stop | Speak → AI agent executes your instruction (open apps, search the web, write to Feishu, etc.) |
+| **Quick Ask** | Press trigger key + Space once to start, once to stop | Speak → AI answers your question in an overlay panel |
 
 The trigger key is fully customizable: Right Ctrl, Right Alt, CapsLock, Right Cmd, F1–F12, or any custom keycode. Configure it in **Settings → Hotkeys**.
 
@@ -90,7 +90,7 @@ On first launch, macOS will prompt you to grant three permissions:
 2. **Input Monitoring** — global keyboard hooks (push-to-talk hotkeys)
 3. **Accessibility** — text insertion into other apps
 
-Grant all three. Hold **Right Ctrl**, speak, release — text appears at your cursor.
+Grant all three. Press **Right Ctrl** once to start speaking, press again to stop — text appears at your cursor.
 
 ### Building a Standalone App
 

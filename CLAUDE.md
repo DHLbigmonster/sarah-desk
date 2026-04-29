@@ -44,6 +44,7 @@ Important files:
 - `src/renderer/src/modules/agent/AgentWindow.tsx`
 - `src/renderer/src/modules/asr/components/FloatingWindow.tsx`
 - `scripts/verify-mini-integration.ts`
+- `scripts/install.sh` — one-liner install script for end users (curl | bash)
 
 ## Voice Modes
 
@@ -132,7 +133,7 @@ Trigger key / +Shift / +Space require macOS Accessibility + Input Monitoring (ui
 ## CI/CD
 
 - `.github/workflows/ci.yml` — runs on PR/push to main: typecheck, lint, test, verify:mini.
-- `.github/workflows/release.yml` — runs on tag push (`v*`): builds macOS arm64 DMG + ZIP, creates draft GitHub Release. No lint/typecheck (CI already covers that).
+- `.github/workflows/release.yml` — runs on tag push (`v*`): builds macOS arm64 ZIP, creates draft GitHub Release. No lint/typecheck (CI already covers that).
 
 ## Verification Baseline
 
