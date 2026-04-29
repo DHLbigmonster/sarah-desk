@@ -45,7 +45,15 @@ The trigger key is fully customizable: Right Ctrl, Right Alt, CapsLock, Right Cm
 
 **Context Capture**: When you press the hotkey for Command mode, Sarah captures a screenshot and metadata of your current app *before* its own window appears. This means the agent sees what you were looking at, not the Sarah interface.
 
-## Quick Start (Zero Config)
+## Installation
+
+### Download (Recommended)
+
+Download the latest `.dmg` from [**GitHub Releases**](https://github.com/DHLbigmonster/sarah-desk/releases). Open the DMG and drag Sarah to your Applications folder.
+
+> **Note**: macOS will show an "unidentified developer" warning because the app is not code-signed. Right-click → Open on first launch to bypass Gatekeeper.
+
+### Quick Start (Zero Config)
 
 **No registration, no API keys, no Chinese phone number.** Sarah uses Apple Speech for voice recognition out of the box.
 
@@ -194,6 +202,7 @@ Checks source wiring, packaged app contents, native modules, and runs a packaged
 | **Hotkeys not working** | Grant Accessibility + Input Monitoring in System Settings. Change trigger key in Settings → Hotkeys. |
 | **Text not inserting** | Grant Accessibility permission. |
 | **Dictation not working without config** | Grant Microphone permission. Apple Speech is used as fallback. |
+| **"macOS cannot verify the developer"** | Right-click (or Control-click) the app → Open. This only needs to be done once. Alternatively: System Settings → Privacy & Security → click "Open Anyway". |
 
 ## CI/CD
 
