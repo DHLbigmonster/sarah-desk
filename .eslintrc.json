@@ -17,7 +17,7 @@
     "import/no-unresolved": [
       "error",
       {
-        "ignore": ["^vitest/config$"]
+        "ignore": ["^vitest/config$", "^https-proxy-agent$"]
       }
     ]
   }
