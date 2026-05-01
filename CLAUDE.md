@@ -202,3 +202,18 @@ The voice trigger key (previously hardcoded to Right Ctrl) is now user-configura
 - **Settings UI**: `HotkeysSection` shows a grid of all safe trigger keys. `isDirty` check covers `voiceTriggerKey`, `customKeycode`, and `toggleWindow`.
 - **Mini settings**: Hotkey hint is now dynamic (computed from `hotkeyConfig`), not hardcoded "Right Ctrl · Ctrl+Space".
 - **HotkeyManager.apply()**: `voiceTriggerChanged` compares both `voiceTriggerKey` and `customKeycode` to detect changes when the user switches between custom keycodes.
+
+## 2026-05-01 Pre-UI-Optimization Save
+
+User asked to optimize the current project UI with GPT image generation support, but first save the current project state to GitHub.
+
+- Created a preservation point before any UI optimization work.
+- Current working tree already contained broad changes: removal of the old `src/renderer/clawdesk/**` surface and `vite.clawdesk.config.ts`, updates around mini settings, ASR, push-to-talk, IPC/preload types, and new marketing notes.
+- Decision: keep all existing local changes intact and save them as-is before discussing or implementing the next UI direction.
+- No UI optimization has been started in this entry.
+
+Next steps:
+
+- Discuss target UI direction for Sarah: menubar popover, mini settings, floating HUD, answer overlay, or marketing surfaces.
+- Before editing UI code, read the specific Trellis frontend guidelines for window lifecycle, IPC, component structure, React pitfalls, and type safety.
+- Use generated raster visuals only where they improve the actual product surface; keep app controls dense, clear, and native-feeling.

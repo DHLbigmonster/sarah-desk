@@ -32,7 +32,11 @@ const config: ForgeConfig = {
     extraResource: ['./assets/tray-icon.png'],
   },
   rebuildConfig: {
-    force: true,
+    // uiohook-napi and @xitanggg/node-insert-text both ship N-API prebuilds
+    // (ABI-stable across Node/Electron), loaded at runtime by node-gyp-build.
+    // Skip electron-rebuild entirely — node-gyp from-source compilation of
+    // libuiohook times out on header copies. Empty onlyModules disables rebuild.
+    onlyModules: [],
   },
   hooks: {
     // Copy native modules after packaging
@@ -90,10 +94,6 @@ const config: ForgeConfig = {
         {
           name: 'floating_window',
           config: 'vite.floating.config.ts',
-        },
-        {
-          name: 'clawdesk_window',
-          config: 'vite.clawdesk.config.ts',
         },
         {
           name: 'mini_settings_window',

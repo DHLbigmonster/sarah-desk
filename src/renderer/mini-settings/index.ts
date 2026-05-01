@@ -134,6 +134,15 @@ function render(status: MiniStatus): void {
         </div>
 
         <div class="status-card">
+          <span class="status-dot ${status.agent.available ? 'ok' : 'error'}"></span>
+          <div class="status-info">
+            <span class="status-label">Agent</span>
+            <span class="status-value">${status.agent.available ? 'OpenClaw' : 'Not found'}</span>
+            <span class="status-detail">${escapeHtml(status.agent.detail)}</span>
+          </div>
+        </div>
+
+        <div class="status-card">
           <span class="status-dot ${recorderReady ? 'ok' : 'warn'}"></span>
           <div class="status-info">
             <span class="status-label">Recorder</span>
@@ -148,7 +157,6 @@ function render(status: MiniStatus): void {
           <button id="logs" type="button">Logs</button>
         </div>
         <div class="footer-right">
-          <button id="settings" type="button" class="primary">Settings</button>
         </div>
       </footer>
     </section>
@@ -156,10 +164,6 @@ function render(status: MiniStatus): void {
 
   document.getElementById('logs')?.addEventListener('click', () => {
     void window.api.mini.showLogs();
-  });
-
-  document.getElementById('settings')?.addEventListener('click', () => {
-    void window.api.clawDesk.showHome();
   });
 }
 

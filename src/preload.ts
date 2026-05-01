@@ -29,11 +29,19 @@ import type {
   OpenClawStatus,
 } from './shared/types/clawdesk-settings';
 import type { MiniStatus } from './shared/types/mini';
+import type {
+  ASRApi,
+  FloatingWindowApi,
+  AgentApi,
+  PushToTalkApi,
+  ClawDeskApi,
+  MiniApi,
+} from './shared/types/ipc-api';
 
 /**
  * ASR API exposed to the renderer process.
  */
-const asrApi = {
+const asrApi: ASRApi = {
   start: (config?: Partial<ASRConfig>): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.ASR.START, config),
 
@@ -80,7 +88,7 @@ const asrApi = {
 /**
  * Floating Window API exposed to the renderer process.
  */
-const floatingWindowApi = {
+const floatingWindowApi: FloatingWindowApi = {
   show: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.FLOATING_WINDOW.SHOW),
 
@@ -99,7 +107,7 @@ const floatingWindowApi = {
 /**
  * Agent API exposed to the renderer process.
  */
-const agentApi = {
+const agentApi: AgentApi = {
   /**
    * Hide/close the agent window.
    */
@@ -249,7 +257,7 @@ const agentApi = {
   },
 };
 
-const pushToTalkApi = {
+const pushToTalkApi: PushToTalkApi = {
   cancel: (): void => { ipcRenderer.send(IPC_CHANNELS.PUSH_TO_TALK.CANCEL); },
   confirm: (): void => { ipcRenderer.send(IPC_CHANNELS.PUSH_TO_TALK.CONFIRM); },
   onState: (callback: (state: VoiceOverlayState) => void): (() => void) => {
@@ -261,7 +269,7 @@ const pushToTalkApi = {
   },
 };
 
-const clawDeskApi = {
+const clawDeskApi: ClawDeskApi = {
   getStatus: (): Promise<ClawDeskStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_STATUS),
 
@@ -326,7 +334,7 @@ const clawDeskApi = {
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_OPENCLAW_STATUS),
 };
 
-const miniApi = {
+const miniApi: MiniApi = {
   getStatus: (): Promise<MiniStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.GET_STATUS),
   showLogs: (): Promise<{ success: boolean; error?: string }> =>

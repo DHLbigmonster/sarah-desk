@@ -105,7 +105,7 @@ contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'await asrServi
 contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'dictationRefinementService.refine', 'dictation refinement after ASR');
 contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'textInputService.insert', 'text insertion after refinement');
 contains('src/main.ts', 'new Tray(icon)', 'tray/menu bar creation');
-contains('src/main.ts', 'Open Sarah Debug Console', 'Sarah debug console menu item');
+contains('src/main.ts', 'Open Logs', 'Logs menu item');
 contains('src/main.ts', 'miniSettingsWindow.show()', 'Mini Settings menu item');
 regex('src/main.ts', /app\.on\('ready'[\s\S]*?createTray\(\);[\s\S]*?logger\.info\('sarah-desk ready in Mini mode/, 'Mini startup path');
 

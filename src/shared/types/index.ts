@@ -17,3 +17,13 @@ export type {
   AgentStreamChunk,
   AgentContextReadyPayload,
 } from './agent';
+
+export type {
+  AppApi,
+  ASRApi,
+  FloatingWindowApi,
+  AgentApi,
+  PushToTalkApi,
+  ClawDeskApi,
+  MiniApi,
+} from './ipc-api';

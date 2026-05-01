@@ -18,6 +18,8 @@ const {
   mockAsrService: {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue({ text: 'hello world' }),
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
   },
   mockFloatingWindow: {
     sendVoiceState: vi.fn(),

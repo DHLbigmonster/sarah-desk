@@ -3,6 +3,7 @@ process.stdout.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'E
 process.stderr.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE') throw err; });
 import { app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut, ipcMain, shell, Notification } from 'electron';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import dotenv from 'dotenv';
 import log from 'electron-log';
 
@@ -172,6 +173,14 @@ function createRecorderWindow(): void {
   logger.info('Recorder window created (hidden)');
 }
 
+function detectOpenClaw(): { available: boolean; binaryPath: string | null; detail: string } {
+  try {
+    const bin = execFileSync('which', ['openclaw'], { encoding: 'utf-8', timeout: 3000 }).trim();
+    if (bin) return { available: true, binaryPath: bin, detail: bin };
+  } catch { /* not found */ }
+  return { available: false, binaryPath: null, detail: 'openclaw not found — Command / Quick Ask will not work' };
+}
+
 async function getMiniStatus(): Promise<MiniStatus> {
   const gateway = await clawDeskMainWindow.getStatus();
   const gatewayUrl = `http://${gateway.endpoint}`;
@@ -179,6 +188,7 @@ async function getMiniStatus(): Promise<MiniStatus> {
   const accessibilityGranted = permissionsService.getAccessibilityStatus();
   const screenRecordingStatus = permissionsService.getScreenRecordingStatus();
   const asrConfigured = isASRConfigured();
+  const agentStatus = detectOpenClaw();
 
   return {
     mode: 'mini',
@@ -197,6 +207,7 @@ async function getMiniStatus(): Promise<MiniStatus> {
       configured: lightweightRefinementClient.isConfigured(),
       detail: lightweightRefinementClient.isConfigured() ? 'Model configured' : 'Using local fallback',
     },
+    agent: agentStatus,
     hotkeys: {
       accessibilityGranted,
       keyboardHookActive: voiceModeManager.isReady,
@@ -468,8 +479,8 @@ function createTray(): void {
       },
       { type: 'separator' },
       {
-        label: 'Open Sarah Debug Console',
-        click: () => clawDeskMainWindow.show(),
+        label: 'Open Logs',
+        click: () => shell.openPath(app.getPath('logs')),
       },
       {
         label: 'Quit',
@@ -503,11 +514,6 @@ function createTray(): void {
     tray?.popUpContextMenu();
   });
 
-  const clawDeskWindow = clawDeskMainWindow.getWindow();
-  if (clawDeskWindow) {
-    clawDeskWindow.on('show', rebuildMenu);
-    clawDeskWindow.on('hide', rebuildMenu);
-  }
 }
 
 // ─── Permissions helper ───────────────────────────────────────────────────────

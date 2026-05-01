@@ -103,6 +103,14 @@ export class VoiceModeManager {
     this.stopKeys.clear();
     this.stopKeys.add(keycode);
 
+    // VAD: auto-stop on sustained silence
+    asrService.on('silence', () => {
+      if (this.state !== 'idle') {
+        logger.info('VoiceModeManager: VAD silence → auto-stop', { state: this.state });
+        void this.stopCurrentMode();
+      }
+    });
+
     // For non-modifier trigger keys (CapsLock, F-keys, MetaRight), register
     // them as pseudo-modifiers so Space chords can be detected.
     const isStandardModifier = ([
@@ -168,6 +176,7 @@ export class VoiceModeManager {
       globalShortcut.unregister('Control+Space');
       this.isQuickAskShortcutInitialized = false;
     }
+    asrService.removeAllListeners('silence');
     this.isInitialized = false;
     logger.info('VoiceModeManager disposed');
   }
