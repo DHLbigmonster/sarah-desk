@@ -78,6 +78,7 @@ export function AgentWindow(): ReactNode {
 
   const streamingIdRef = useRef<string | null>(null);
   const firstChunkNotifiedRef = useRef(false);
+  const answerBodyRef = useRef<HTMLDivElement | null>(null);
 
   const syncVisibleAnswer = useCallback((assistantMessage: AgentMessage | null) => {
     return assistantMessage?.content ?? '';
@@ -88,10 +89,17 @@ export function AgentWindow(): ReactNode {
   }, []);
 
   const handleCopy = useCallback((text: string) => {
+    if (!text) return;
     void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  }, []);
+
+  const handleAbort = useCallback(() => {
+    void window.api.agent.abort();
+    setIsStreaming(false);
+    streamingIdRef.current = null;
   }, []);
 
   const handleRetry = useCallback(() => {
@@ -112,17 +120,31 @@ export function AgentWindow(): ReactNode {
     firstChunkNotifiedRef.current = false;
   }, [messages, context]);
 
+  const latestUser = findLatestMessage(messages, 'user');
+  const latestAssistant = findLatestMessage(messages, 'assistant');
+  const visibleAnswer = syncVisibleAnswer(latestAssistant);
+  const showCursor = isStreaming;
+  const showThinking = !visibleAnswer && isStreaming;
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault();
         handleHide();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'c') {
+        const selectedText = window.getSelection()?.toString();
+        if (!selectedText && visibleAnswer) {
+          event.preventDefault();
+          handleCopy(visibleAnswer);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleHide]);
+  }, [handleHide, handleCopy, visibleAnswer]);
 
   useEffect(() => {
     const unsubShow = window.api.agent.onShow((payload) => {
@@ -242,18 +264,23 @@ export function AgentWindow(): ReactNode {
     };
   }, []);
 
-  const latestUser = findLatestMessage(messages, 'user');
-  const latestAssistant = findLatestMessage(messages, 'assistant');
-  const visibleAnswer = syncVisibleAnswer(latestAssistant);
-  const showCursor = isStreaming;
-  const showThinking = !visibleAnswer && isStreaming;
+  useEffect(() => {
+    if (!isStreaming) return;
+    const body = answerBodyRef.current;
+    if (!body) return;
+    body.scrollTop = body.scrollHeight;
+  }, [visibleAnswer, isStreaming]);
 
   const statusState = isStreaming ? 'thinking' : 'done';
-  const statusLabel = isStreaming ? '正在思考' : '已完成';
+  const statusLabel = isStreaming ? 'Thinking' : 'Ready';
 
   return (
     <div className="agent-window">
       <div className="agent-window__header">
+        <div className="agent-window__mode">
+          <span className="agent-window__mode-mark" />
+          <span>{latestUser ? 'Answer' : 'Sarah'}</span>
+        </div>
         <button
           className="agent-window__close"
           onClick={handleHide}
@@ -270,23 +297,10 @@ export function AgentWindow(): ReactNode {
 
       {latestUser?.content && (
         <div className="agent-window__question-shell">
+          <div className="agent-window__question-label">Prompt</div>
           <div className="agent-window__question">
             {latestUser.content}
           </div>
-          {!isStreaming && (
-            <button
-              className="agent-window__retry-btn"
-              onClick={handleRetry}
-              title="重新提问"
-              aria-label="重新提问"
-            >
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="1 4 1 10 7 10" />
-                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-              </svg>
-              重试
-            </button>
-          )}
         </div>
       )}
 
@@ -298,29 +312,9 @@ export function AgentWindow(): ReactNode {
           >
             {statusLabel}
           </div>
-          {visibleAnswer && !isStreaming && (
-            <button
-              className="agent-window__copy-btn"
-              onClick={() => handleCopy(visibleAnswer)}
-              title="复制回答"
-              aria-label="复制回答"
-              data-copied={copied}
-            >
-              {copied ? (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-              )}
-            </button>
-          )}
         </div>
 
-        <div className="agent-window__answer-body">
+        <div className="agent-window__answer-body" ref={answerBodyRef}>
           {showThinking ? (
             <ThinkingState />
           ) : (
@@ -350,16 +344,27 @@ export function AgentWindow(): ReactNode {
         </div>
       </div>
 
-      <div className="agent-window__footer">
-        <span>
-          快捷提问 <kbd>⌃</kbd> / <kbd>⌃</kbd><kbd>Space</kbd>
-        </span>
-        <span>
-          命令 <kbd>⌃</kbd><kbd>⇧</kbd>
-        </span>
-        <span>
-          关闭 <kbd>Esc</kbd>
-        </span>
+      <div className="agent-window__actionbar">
+        {isStreaming ? (
+          <button className="agent-window__action-btn agent-window__action-btn--danger" onClick={handleAbort}>
+            Stop
+          </button>
+        ) : (
+          <button className="agent-window__action-btn" onClick={handleRetry} disabled={!latestUser || !context}>
+            Retry
+          </button>
+        )}
+        <button
+          className="agent-window__action-btn"
+          onClick={() => handleCopy(visibleAnswer)}
+          disabled={!visibleAnswer}
+          data-copied={copied}
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+        <button className="agent-window__action-btn agent-window__action-btn--primary" onClick={handleHide}>
+          Done
+        </button>
       </div>
     </div>
   );

@@ -82,7 +82,7 @@ export interface DailySummary {
 
 /**
  * Persisted form of a single day's chat session.
- * Written to ~/.feishu-agent/sessions/YYYY-MM-DD.json.
+ * Written to ~/.sarah/sessions/YYYY-MM-DD.json.
  */
 export interface PersistedSession {
   date: string;

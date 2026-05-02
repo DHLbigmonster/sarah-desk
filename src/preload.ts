@@ -29,12 +29,14 @@ import type {
   OpenClawStatus,
 } from './shared/types/clawdesk-settings';
 import type { MiniStatus } from './shared/types/mini';
+import type { LocalToolsSnapshot } from './shared/types/local-tools';
 import type {
   ASRApi,
   FloatingWindowApi,
   AgentApi,
   PushToTalkApi,
   ClawDeskApi,
+  LocalToolsApi,
   MiniApi,
 } from './shared/types/ipc-api';
 
@@ -334,9 +336,26 @@ const clawDeskApi: ClawDeskApi = {
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_OPENCLAW_STATUS),
 };
 
+const localToolsApi: LocalToolsApi = {
+  getSnapshot: (): Promise<LocalToolsSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.GET_SNAPSHOT),
+};
+
 const miniApi: MiniApi = {
   getStatus: (): Promise<MiniStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.GET_STATUS),
+  hidePopover: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.HIDE_POPOVER),
+  showSettings: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.SHOW_SETTINGS),
+  openPermissions: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.OPEN_PERMISSIONS),
+  toggleDictation: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.TOGGLE_DICTATION),
+  toggleCommand: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.TOGGLE_COMMAND),
+  quit: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.QUIT),
   showLogs: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.SHOW_LOGS),
   testRecorderWindow: (): Promise<{ success: boolean; detail: string }> =>
@@ -369,5 +388,6 @@ contextBridge.exposeInMainWorld('api', {
   agent: agentApi,
   pushToTalk: pushToTalkApi,
   clawDesk: clawDeskApi,
+  localTools: localToolsApi,
   mini: miniApi,
 });

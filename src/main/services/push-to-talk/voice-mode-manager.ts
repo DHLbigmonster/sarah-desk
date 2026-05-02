@@ -117,9 +117,7 @@ export class VoiceModeManager {
       UiohookKey.CtrlRight, UiohookKey.AltRight, UiohookKey.Ctrl,
       UiohookKey.Shift, UiohookKey.ShiftRight,
     ] as readonly number[]).includes(keycode);
-    if (!isStandardModifier) {
-      keyboardService.setTriggerKeycode(keycode);
-    }
+    keyboardService.setTriggerKeycode(isStandardModifier ? null : keycode);
 
     // Determine the modifier string for Space+trigger chords.
     const triggerModifier = this.resolveTriggerModifier(keycode);
@@ -172,6 +170,7 @@ export class VoiceModeManager {
     keyboardService.unregister(keycode);
     keyboardService.unregister(keycode, 'shift');
     keyboardService.unregister(UiohookKey.Space, modifier);
+    keyboardService.setTriggerKeycode(null);
     if (this.isQuickAskShortcutInitialized) {
       globalShortcut.unregister('Control+Space');
       this.isQuickAskShortcutInitialized = false;
@@ -230,7 +229,15 @@ export class VoiceModeManager {
     if (!raw) return raw;
     try {
       const cleaned = await dictationRefinementService.refine(raw);
-      return cleaned.trim() || raw;
+      const result = cleaned.trim() || raw;
+      logger.info('Voice transcript refined', {
+        mode,
+        rawChars: raw.length,
+        refinedChars: result.length,
+        rawPreview: raw.slice(0, 80),
+        refinedPreview: result.slice(0, 80),
+      });
+      return result;
     } catch (err) {
       logger.warn('cleanTranscript fallback to raw', {
         mode,
@@ -371,6 +378,13 @@ export class VoiceModeManager {
       this.publishOverlayState('dictation', 'routing');
       floatingWindow.sendStatus('routing');
       const refined = await dictationRefinementService.refine(result.text);
+      logger.info('Voice transcript refined', {
+        mode: 'dictation',
+        rawChars: result.text.length,
+        refinedChars: refined.length,
+        rawPreview: result.text.slice(0, 80),
+        refinedPreview: refined.slice(0, 80),
+      });
 
       this.publishOverlayState('dictation', 'executing');
       floatingWindow.sendStatus('executing');

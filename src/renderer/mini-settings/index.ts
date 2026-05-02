@@ -1,5 +1,11 @@
 import type { MiniStatus } from '../../shared/types/mini';
-import type { HotkeyConfig } from '../../shared/types/clawdesk-settings';
+import type { LocalToolHealth, LocalToolsSnapshot, LocalToolStatus } from '../../shared/types/local-tools';
+import {
+  SAFE_TRIGGER_KEYS,
+  VOICE_TRIGGER_KEY_LABELS,
+  type HotkeyConfig,
+  type VoiceTriggerKey,
+} from '../../shared/types/clawdesk-settings';
 import './styles.css';
 
 const rootElement = document.getElementById('root');
@@ -9,7 +15,7 @@ if (!rootElement) {
 }
 
 const root = rootElement;
-
+let notice: { tone: 'ok' | 'warn' | 'error'; message: string } | null = null;
 
 function escapeHtml(value: string): string {
   return value
@@ -20,20 +26,146 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#039;');
 }
 
-const TRIGGER_KEY_LABELS: Record<string, string> = {
-  CtrlRight: 'Right Ctrl',
-  AltRight: 'Right Alt',
-  CapsLock: 'CapsLock',
-  MetaRight: 'Right Cmd',
-  F1: 'F1', F2: 'F2', F3: 'F3', F4: 'F4', F5: 'F5', F6: 'F6',
-  F7: 'F7', F8: 'F8', F9: 'F9', F10: 'F10', F11: 'F11', F12: 'F12',
-};
-
 function hotkeyHint(config: HotkeyConfig): string {
   const label = config.voiceTriggerKey === 'custom'
     ? `Key ${config.customKeycode ?? '?'}`
-    : (TRIGGER_KEY_LABELS[config.voiceTriggerKey] ?? config.voiceTriggerKey);
-  return `${label} · ${label}+Space`;
+    : (VOICE_TRIGGER_KEY_LABELS[config.voiceTriggerKey] ?? config.voiceTriggerKey);
+  return `Dictate ${label} · Command ${label} + Shift · Ask ${label} + Space`;
+}
+
+function hotkeyLabel(config: HotkeyConfig): string {
+  return config.voiceTriggerKey === 'custom'
+    ? `Key ${config.customKeycode ?? '?'}`
+    : (VOICE_TRIGGER_KEY_LABELS[config.voiceTriggerKey] ?? config.voiceTriggerKey);
+}
+
+function shortcutDeck(config: HotkeyConfig): string {
+  const label = hotkeyLabel(config);
+  return `
+    <div class="shortcut-deck" aria-label="Shortcut modes">
+      <div class="shortcut-token active">
+        <span>Dictate</span>
+        <kbd>${escapeHtml(label)}</kbd>
+      </div>
+      <div class="shortcut-token">
+        <span>Command</span>
+        <kbd>${escapeHtml(label)} + Shift</kbd>
+      </div>
+      <div class="shortcut-token">
+        <span>Ask</span>
+        <kbd>${escapeHtml(label)} + Space</kbd>
+      </div>
+    </div>
+  `;
+}
+
+function renderNotice(): string {
+  if (!notice) return '';
+  return `<div class="notice ${notice.tone}">${escapeHtml(notice.message)}</div>`;
+}
+
+function hotkeyPicker(config: HotkeyConfig, disabled: boolean): string {
+  const buttons = SAFE_TRIGGER_KEYS.map((key) => {
+    const selected = config.voiceTriggerKey === key;
+    return `
+      <button
+        class="trigger-key ${selected ? 'selected' : ''}"
+        type="button"
+        data-trigger-key="${escapeHtml(key)}"
+        ${disabled ? 'disabled' : ''}
+      >
+        ${escapeHtml(VOICE_TRIGGER_KEY_LABELS[key])}
+      </button>
+    `;
+  }).join('');
+
+  const currentLabel = config.voiceTriggerKey === 'custom'
+    ? `Custom keycode ${config.customKeycode ?? '?'}`
+    : VOICE_TRIGGER_KEY_LABELS[config.voiceTriggerKey];
+  const disabledCopy = disabled
+    ? 'Stop the current recording before changing shortcuts.'
+    : 'Choose one stable base trigger. Advanced keycodes stay hidden for release builds.';
+
+  return `
+    <section class="hotkey-card">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">Hotkeys</span>
+          <h2>${escapeHtml(currentLabel)}</h2>
+        </div>
+        <span class="section-detail">${escapeHtml(disabled ? 'Recording' : 'Live')}</span>
+      </div>
+      <p class="section-copy">${escapeHtml(disabledCopy)}</p>
+      ${shortcutDeck(config)}
+      <div class="trigger-grid">${buttons}</div>
+    </section>
+  `;
+}
+
+function localToolTone(health: LocalToolHealth): string {
+  switch (health) {
+    case 'ready':
+      return 'ok';
+    case 'needs_setup':
+      return 'warn';
+    case 'missing':
+      return 'error';
+    default:
+      return 'warn';
+  }
+}
+
+function renderCapabilities(tool: LocalToolStatus): string {
+  const enabled = tool.capabilities.filter((capability) => capability.enabled);
+  if (enabled.length === 0) {
+    return '<span class="tool-chip muted">No enabled actions</span>';
+  }
+  return enabled
+    .slice(0, 3)
+    .map((capability) => `
+      <span class="tool-chip ${capability.requiresConsent ? 'consent' : ''}">
+        ${escapeHtml(capability.label)}${capability.requiresConsent ? ' · approve' : ''}
+      </span>
+    `)
+    .join('');
+}
+
+function renderLocalTool(tool: LocalToolStatus): string {
+  const tone = localToolTone(tool.health);
+  const pathLabel = tool.path ? tool.path.replace(/^\/Users\/[^/]+/, '~') : (tool.setupHint ?? 'Not configured');
+  return `
+    <div class="tool-row">
+      <span class="status-dot ${tone}"></span>
+      <div class="tool-body">
+        <div class="tool-main">
+          <span class="tool-name">${escapeHtml(tool.name)}</span>
+          <span class="tool-state ${tone}">${escapeHtml(tool.health.replace('_', ' '))}</span>
+        </div>
+        <span class="tool-detail">${escapeHtml(tool.detail)}</span>
+        <div class="tool-chips">${renderCapabilities(tool)}</div>
+      </div>
+      <span class="tool-path">${escapeHtml(pathLabel)}</span>
+    </div>
+  `;
+}
+
+function localToolsCard(snapshot: LocalToolsSnapshot): string {
+  const tone = snapshot.missing > 0 ? 'warn' : snapshot.needsSetup > 0 ? 'warn' : 'ok';
+  return `
+    <section class="local-tools-card">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">Local Tools</span>
+          <h2>${snapshot.ready} ready · ${snapshot.needsSetup} setup</h2>
+        </div>
+        <span class="section-detail ${tone}">${snapshot.tools.length} tools</span>
+      </div>
+      <p class="section-copy">Sarah detects local capabilities here. Write, message, and external actions require explicit approval.</p>
+      <div class="tool-list">
+        ${snapshot.tools.map(renderLocalTool).join('')}
+      </div>
+    </section>
+  `;
 }
 
 function voiceStateLabel(state: string): string {
@@ -66,7 +198,53 @@ function gatewayStateClass(state: string): string {
   }
 }
 
-function render(status: MiniStatus): void {
+function providerStateClass(configured: boolean): string {
+  return configured ? 'ok' : 'warn';
+}
+
+function healthSummary(status: MiniStatus, missingPerms: string[], recorderReady: boolean): { tone: string; label: string; detail: string } {
+  if (missingPerms.length > 0) {
+    return {
+      tone: 'warn',
+      label: `${missingPerms.length} permission${missingPerms.length === 1 ? '' : 's'} need attention`,
+      detail: missingPerms.join(', '),
+    };
+  }
+  if (!status.agent.available) {
+    return {
+      tone: 'error',
+      label: 'Agent unavailable',
+      detail: 'OpenClaw is not installed or not on PATH',
+    };
+  }
+  if (!recorderReady) {
+    return {
+      tone: 'warn',
+      label: 'Recorder warming up',
+      detail: status.recorder.asrStatus,
+    };
+  }
+  return {
+    tone: 'ok',
+    label: 'Ready for voice',
+    detail: hotkeyHint(status.hotkeys.hotkeyConfig),
+  };
+}
+
+function statusRow(label: string, value: string, detail: string, tone: string): string {
+  return `
+    <div class="status-row">
+      <span class="status-dot ${tone}"></span>
+      <div class="status-info">
+        <span class="status-label">${escapeHtml(label)}</span>
+        <span class="status-value">${escapeHtml(value)}</span>
+      </div>
+      <span class="status-detail">${escapeHtml(detail)}</span>
+    </div>
+  `;
+}
+
+function render(status: MiniStatus, localTools: LocalToolsSnapshot): void {
   const recorderReady = status.recorder.created && status.recorder.ready;
   const perms = status.permissions;
   const missingPerms = [
@@ -75,81 +253,57 @@ function render(status: MiniStatus): void {
     !perms.inputMonitoring ? 'Input' : null,
     perms.screenRecording !== 'granted' ? 'Screen' : null,
   ].filter(Boolean);
+  const summary = healthSummary(status, missingPerms as string[], recorderReady);
+  const hotkeyDisabled = status.hotkeys.currentVoiceState !== 'idle';
 
   root.innerHTML = `
     <div class="refresh-indicator" id="refresh-dot"></div>
     <section class="shell">
       <header class="header">
         <div class="header-left">
-          <h1>Sarah</h1>
-          <span class="mode-tag">Voice</span>
+          <span class="brand-mark"></span>
+          <div>
+            <h1>Sarah</h1>
+            <span class="header-subtitle">Voice Control Center</span>
+          </div>
         </div>
+        <span class="mode-tag ${summary.tone}">${escapeHtml(summary.tone)}</span>
       </header>
 
       <div class="voice-hero">
-        <span class="status-dot ${voiceStateClass(status.hotkeys.currentVoiceState)}"></span>
+        <span class="hero-orb ${voiceStateClass(status.hotkeys.currentVoiceState)}"></span>
         <div>
           <span class="voice-state-text">${escapeHtml(voiceStateLabel(status.hotkeys.currentVoiceState))}</span>
           <span class="voice-state-hint">${escapeHtml(hotkeyHint(status.hotkeys.hotkeyConfig))}</span>
         </div>
       </div>
 
-      ${missingPerms.length > 0 ? `
-      <div class="status-card warn-card">
-        <span class="status-dot warn"></span>
+      <div class="health-card ${summary.tone}">
+        <span class="status-dot ${summary.tone}"></span>
         <div class="status-info">
-          <span class="status-label">Permissions</span>
-          <span class="status-value">Missing: ${escapeHtml(missingPerms.join(', '))}</span>
-          <span class="status-detail">Open Settings to grant</span>
+          <span class="status-label">Health</span>
+          <span class="status-value">${escapeHtml(summary.label)}</span>
+          <span class="status-detail">${escapeHtml(summary.detail)}</span>
         </div>
       </div>
-      ` : ''}
 
-      <div class="status-grid">
-        <div class="status-card">
-          <span class="status-dot ${gatewayStateClass(status.gateway.state)}"></span>
-          <div class="status-info">
-            <span class="status-label">Gateway</span>
-            <span class="status-value">${escapeHtml(status.gateway.state)}</span>
-            <span class="status-detail">${escapeHtml(status.gateway.url)}</span>
-          </div>
-        </div>
+      ${renderNotice()}
+      ${hotkeyPicker(status.hotkeys.hotkeyConfig, hotkeyDisabled)}
+      ${localToolsCard(localTools)}
 
-        <div class="status-card">
-          <span class="status-dot ${status.asrProvider.configured ? 'ok' : 'warn'}"></span>
-          <div class="status-info">
-            <span class="status-label">Speech</span>
-            <span class="status-value">${escapeHtml(status.asrProvider.name)}</span>
-            <span class="status-detail">${escapeHtml(status.asrProvider.detail)}</span>
-          </div>
-        </div>
+      <div class="action-grid">
+        <button id="dictate" class="primary-action" type="button">Dictate</button>
+        <button id="command" class="primary-action secondary" type="button">Command</button>
+        <button id="permissions" class="utility-action" type="button">Fix Permissions</button>
+        <button id="refresh" class="utility-action" type="button">Refresh</button>
+      </div>
 
-        <div class="status-card">
-          <span class="status-dot ${status.refinementProvider.configured ? 'ok' : 'warn'}"></span>
-          <div class="status-info">
-            <span class="status-label">Refinement</span>
-            <span class="status-value">${escapeHtml(status.refinementProvider.name)}</span>
-            <span class="status-detail">${status.refinementProvider.configured ? 'Model' : 'Fallback'}</span>
-          </div>
-        </div>
-
-        <div class="status-card">
-          <span class="status-dot ${status.agent.available ? 'ok' : 'error'}"></span>
-          <div class="status-info">
-            <span class="status-label">Agent</span>
-            <span class="status-value">${status.agent.available ? 'OpenClaw' : 'Not found'}</span>
-            <span class="status-detail">${escapeHtml(status.agent.detail)}</span>
-          </div>
-        </div>
-
-        <div class="status-card">
-          <span class="status-dot ${recorderReady ? 'ok' : 'warn'}"></span>
-          <div class="status-info">
-            <span class="status-label">Recorder</span>
-            <span class="status-value">${recorderReady ? 'Ready' : 'Loading'}</span>
-            <span class="status-detail">${escapeHtml(status.recorder.asrStatus)}</span>
-          </div>
-        </div>
+      <div class="status-list">
+        ${statusRow('Gateway', status.gateway.state, status.gateway.url.replace(/^https?:\/\//, ''), gatewayStateClass(status.gateway.state))}
+        ${statusRow('Speech', status.asrProvider.name, status.asrProvider.configured ? 'Cloud' : 'Local', providerStateClass(status.asrProvider.configured))}
+        ${statusRow('Refinement', status.refinementProvider.name, status.refinementProvider.configured ? 'Model' : 'Fallback', providerStateClass(status.refinementProvider.configured))}
+        ${statusRow('Agent', status.agent.available ? 'OpenClaw' : 'Not found', status.agent.available ? 'Ready' : 'Install', status.agent.available ? 'ok' : 'error')}
+        ${statusRow('Recorder', recorderReady ? 'Ready' : 'Loading', status.recorder.asrStatus, recorderReady ? 'ok' : 'warn')}
       </div>
 
       <footer>
@@ -157,13 +311,39 @@ function render(status: MiniStatus): void {
           <button id="logs" type="button">Logs</button>
         </div>
         <div class="footer-right">
+          <button id="quit" type="button">Quit</button>
         </div>
       </footer>
     </section>
   `;
 
+  document.getElementById('dictate')?.addEventListener('click', () => {
+    void window.api.mini.toggleDictation();
+    setTimeout(() => void load(), 250);
+  });
+  document.getElementById('command')?.addEventListener('click', () => {
+    void window.api.mini.toggleCommand();
+    setTimeout(() => void load(), 250);
+  });
+  document.getElementById('permissions')?.addEventListener('click', () => {
+    void window.api.mini.openPermissions();
+  });
+  document.getElementById('refresh')?.addEventListener('click', () => {
+    void load();
+  });
   document.getElementById('logs')?.addEventListener('click', () => {
     void window.api.mini.showLogs();
+  });
+  document.getElementById('quit')?.addEventListener('click', () => {
+    void window.api.mini.quit();
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-trigger-key]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const key = button.dataset.triggerKey as VoiceTriggerKey | undefined;
+      if (!key || key === status.hotkeys.hotkeyConfig.voiceTriggerKey) return;
+      void saveTriggerKey(status.hotkeys.hotkeyConfig, key);
+    });
   });
 }
 
@@ -195,11 +375,39 @@ async function load(): Promise<void> {
   const dot = document.getElementById('refresh-dot');
   dot?.classList.add('active');
   try {
-    render(await window.api.mini.getStatus());
+    const [status, localTools] = await Promise.all([
+      window.api.mini.getStatus(),
+      window.api.localTools.getSnapshot(),
+    ]);
+    render(status, localTools);
   } catch (error) {
     renderError(error);
   } finally {
     setTimeout(() => dot?.classList.remove('active'), 400);
+  }
+}
+
+async function saveTriggerKey(currentConfig: HotkeyConfig, key: VoiceTriggerKey): Promise<void> {
+  notice = null;
+  try {
+    const result = await window.api.clawDesk.saveHotkeyConfig({
+      ...currentConfig,
+      voiceTriggerKey: key,
+      customKeycode: key === 'custom' ? currentConfig.customKeycode : undefined,
+    });
+    if (!result.success) {
+      notice = { tone: 'error', message: result.error ?? 'Failed to apply shortcut.' };
+      await load();
+      return;
+    }
+    notice = { tone: 'ok', message: `Trigger key changed to ${VOICE_TRIGGER_KEY_LABELS[key]}.` };
+    await load();
+  } catch (error) {
+    notice = {
+      tone: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    };
+    await load();
   }
 }
 

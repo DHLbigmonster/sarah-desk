@@ -7,3 +7,4 @@ export { FloatingWindowManager, floatingWindow } from './floating';
 export { AgentWindowManager, agentWindow } from './agent';
 export { ClawDeskMainWindowManager, clawDeskMainWindow, setQuitting } from './claw-desk';
 export { MiniSettingsWindowManager, miniSettingsWindow } from './mini-settings';
+export { MenubarPopoverWindowManager, menubarPopoverWindow } from './menubar-popover';

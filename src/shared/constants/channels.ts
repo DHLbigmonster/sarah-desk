@@ -118,9 +118,25 @@ export const IPC_CHANNELS = {
     /** Get Open Claw installation and auth status */
     GET_OPENCLAW_STATUS: 'claw-desk:get-openclaw-status',
   },
+  LOCAL_TOOLS: {
+    /** Detect local tools, auth state, safe capabilities, and setup gaps */
+    GET_SNAPSHOT: 'local-tools:get-snapshot',
+  },
   MINI: {
     /** Read current Mini runtime status for the settings window */
     GET_STATUS: 'mini:get-status',
+    /** Hide the custom menu bar popover */
+    HIDE_POPOVER: 'mini:hide-popover',
+    /** Show the full Sarah settings window */
+    SHOW_SETTINGS: 'mini:show-settings',
+    /** Run permission repair flow */
+    OPEN_PERMISSIONS: 'mini:open-permissions',
+    /** Toggle Dictation from UI */
+    TOGGLE_DICTATION: 'mini:toggle-dictation',
+    /** Toggle Command mode from UI */
+    TOGGLE_COMMAND: 'mini:toggle-command',
+    /** Quit Sarah */
+    QUIT: 'mini:quit',
     /** Open the current electron-log output location */
     SHOW_LOGS: 'mini:show-logs',
     /** Renderer -> Main: hidden recorder renderer and preload are alive */

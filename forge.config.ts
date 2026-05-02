@@ -27,9 +27,9 @@ const config: ForgeConfig = {
     executableName: 'Sarah',
     appBundleId: 'com.sarah.app',
     icon: './assets/icon',
-    // Bundle the tray icon next to the packaged app. main.ts reads it via
-    // `process.resourcesPath/assets/tray-icon.png` when app.isPackaged is true.
-    extraResource: ['./assets/tray-icon.png'],
+    // Bundle the tray icon and env config next to the packaged app.
+    // main.ts reads them via process.resourcesPath when app.isPackaged is true.
+    extraResource: ['./assets/tray-icon.png', './.env'],
   },
   rebuildConfig: {
     // uiohook-napi and @xitanggg/node-insert-text both ship N-API prebuilds
@@ -98,6 +98,10 @@ const config: ForgeConfig = {
         {
           name: 'mini_settings_window',
           config: 'vite.mini-settings.config.ts',
+        },
+        {
+          name: 'menubar_popover_window',
+          config: 'vite.menubar-popover.config.ts',
         },
       ],
     }),

@@ -8,6 +8,7 @@ import { setupFloatingWindowHandlers } from './floating-window.handler';
 import { setupAgentHandlers } from './agent.handler';
 import { setupPushToTalkHandlers } from './push-to-talk.handler';
 import { setupClawDeskHandlers } from './claw-desk.handler';
+import { setupLocalToolsHandlers } from './local-tools.handler';
 
 /**
  * Setup all IPC handlers.
@@ -19,4 +20,5 @@ export function setupAllIpcHandlers(): void {
   setupAgentHandlers();
   setupPushToTalkHandlers();
   setupClawDeskHandlers();
+  setupLocalToolsHandlers();
 }

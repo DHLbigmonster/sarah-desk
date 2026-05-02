@@ -27,6 +27,7 @@ import type {
   OpenClawStatus,
 } from './clawdesk-settings';
 import type { MiniStatus } from './mini';
+import type { LocalToolsSnapshot } from './local-tools';
 
 export interface ASRApi {
   start: (config?: Partial<ASRConfig>) => Promise<{ success: boolean }>;
@@ -97,6 +98,12 @@ export interface ClawDeskApi {
 
 export interface MiniApi {
   getStatus: () => Promise<MiniStatus>;
+  hidePopover: () => Promise<{ success: boolean }>;
+  showSettings: () => Promise<{ success: boolean }>;
+  openPermissions: () => Promise<{ success: boolean }>;
+  toggleDictation: () => Promise<{ success: boolean }>;
+  toggleCommand: () => Promise<{ success: boolean }>;
+  quit: () => Promise<{ success: boolean }>;
   showLogs: () => Promise<{ success: boolean; error?: string }>;
   testRecorderWindow: () => Promise<{ success: boolean; detail: string }>;
   testIpc: () => Promise<{ success: boolean; detail: string }>;
@@ -107,11 +114,16 @@ export interface MiniApi {
   sendRecorderPong: (nonce: string) => void;
 }
 
+export interface LocalToolsApi {
+  getSnapshot: () => Promise<LocalToolsSnapshot>;
+}
+
 export interface AppApi {
   asr: ASRApi;
   floatingWindow: FloatingWindowApi;
   agent: AgentApi;
   pushToTalk: PushToTalkApi;
   clawDesk: ClawDeskApi;
+  localTools: LocalToolsApi;
   mini: MiniApi;
 }

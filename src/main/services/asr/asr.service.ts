@@ -86,8 +86,14 @@ export class ASRService extends EventEmitter {
   // ── VAD (Voice Activity Detection) ────────────────────────────────────────────
   /** RMS threshold below which audio is considered silence (PCM 16-bit scale 0–1). */
   private readonly VAD_SILENCE_THRESHOLD = 0.01;
-  /** Number of consecutive silence chunks required to trigger auto-stop. */
-  private readonly VAD_SILENCE_CHUNKS = 6;
+  /**
+   * Number of consecutive silence chunks required to trigger auto-stop.
+   * The recorder emits 4096 samples at 16 kHz, so one chunk is about 256 ms.
+   * Twelve chunks gives users roughly 3 seconds to pause and think.
+   */
+  private readonly VAD_SILENCE_CHUNKS = 12;
+  /** Do not auto-stop immediately after recording starts. */
+  private readonly VAD_MIN_RECORDING_MS = 1500;
   private consecutiveSilenceChunks = 0;
 
   /**
@@ -308,8 +314,17 @@ export class ASRService extends EventEmitter {
     if (rms < this.VAD_SILENCE_THRESHOLD) {
       this.consecutiveSilenceChunks += 1;
       if (this.consecutiveSilenceChunks >= this.VAD_SILENCE_CHUNKS) {
+        const duration = this.recordingStartTime
+          ? Date.now() - this.recordingStartTime
+          : 0;
+
+        if (duration < this.VAD_MIN_RECORDING_MS) {
+          return;
+        }
+
         logger.info('VAD: sustained silence detected, auto-stopping', {
           chunks: this.consecutiveSilenceChunks,
+          duration,
           rms,
         });
         this.consecutiveSilenceChunks = 0;

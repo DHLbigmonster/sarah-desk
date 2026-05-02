@@ -9,8 +9,8 @@ declare const MINI_SETTINGS_WINDOW_VITE_NAME: string;
 const logger = log.scope('mini-settings-window');
 
 const MINI_SETTINGS_CONFIG = {
-  WIDTH: 380,
-  HEIGHT: 380,
+  WIDTH: 420,
+  HEIGHT: 660,
 } as const;
 
 export class MiniSettingsWindowManager {

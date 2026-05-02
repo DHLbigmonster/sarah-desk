@@ -48,9 +48,10 @@ export function setupAgentHandlers(): void {
     logger.info('Daily summary forwarded to renderer', { date: summary.date });
   });
 
-  // Trigger after a short delay so the main window can finish initialising
+  // Trigger after a short delay so the main window can finish initialising,
+  // then keep a local-midnight scheduler alive for long-running app sessions.
   setTimeout(() => {
-    consolidationService.runIfNeeded();
+    consolidationService.startScheduler();
   }, 3000);
 
   // ── Renderer → Main: hide the agent window ──────────────────────────────

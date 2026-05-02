@@ -17,7 +17,14 @@ log.info('[ENV] Result:', result.error ? `ERROR: ${result.error}` : `OK, keys: $
 log.info('[ENV] VOLCENGINE_APP_ID:', process.env.VOLCENGINE_APP_ID ? 'SET' : 'MISSING');
 import started from 'electron-squirrel-startup';
 import { setupAllIpcHandlers } from './main/ipc';
-import { floatingWindow, agentWindow, clawDeskMainWindow, miniSettingsWindow, setQuitting } from './main/windows';
+import {
+  floatingWindow,
+  agentWindow,
+  clawDeskMainWindow,
+  miniSettingsWindow,
+  menubarPopoverWindow,
+  setQuitting,
+} from './main/windows';
 import { voiceModeManager } from './main/services/push-to-talk/voice-mode-manager';
 import { hotkeyManager } from './main/services/hotkey/hotkey-manager';
 import { permissionsService } from './main/services/permissions';
@@ -341,6 +348,32 @@ function setupMiniIpcHandlers(): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.MINI.GET_STATUS, () => getMiniStatus());
+  ipcMain.handle(IPC_CHANNELS.MINI.HIDE_POPOVER, () => {
+    menubarPopoverWindow.hide();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.SHOW_SETTINGS, () => {
+    menubarPopoverWindow.hide();
+    miniSettingsWindow.show();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.OPEN_PERMISSIONS, () => {
+    menubarPopoverWindow.hide();
+    void openPermissions();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.TOGGLE_DICTATION, () => {
+    void voiceModeManager.testDictationToggle();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.TOGGLE_COMMAND, () => {
+    void voiceModeManager.testCommandModeToggle();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.QUIT, () => {
+    app.quit();
+    return { success: true };
+  });
   ipcMain.handle(IPC_CHANNELS.MINI.SHOW_LOGS, async () => {
     const logPath = app.getPath('logs');
     const error = await shell.openPath(logPath);
@@ -495,7 +528,7 @@ function createTray(): void {
 
   // Left-click behavior depends on tray state:
   //   done-unread → show buffered Command result in agent window + reset to idle
-  //   otherwise   → open tray context menu
+  //   otherwise   → open the custom Sarah popover
   tray.on('click', () => {
     if (trayStateService.getState() === 'done-unread') {
       const record = commandResultStore.get();
@@ -511,6 +544,12 @@ function createTray(): void {
       trayStateService.setState('idle');
       return;
     }
+    if (tray) {
+      menubarPopoverWindow.toggle(tray.getBounds());
+    }
+  });
+
+  tray.on('right-click', () => {
     tray?.popUpContextMenu();
   });
 
@@ -638,6 +677,7 @@ function cleanup(): void {
   agentWindow.destroy();
   clawDeskMainWindow.destroy();
   miniSettingsWindow.destroy();
+  menubarPopoverWindow.destroy();
   if (recorderWindow && !recorderWindow.isDestroyed()) {
     recorderWindow.destroy();
     recorderWindow = null;

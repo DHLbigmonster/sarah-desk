@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import type { ClawDeskStatus } from '../../shared/types/clawdesk';
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -24,21 +25,40 @@ const CONFIG_PATH = path.join(os.homedir(), '.openclaw', 'openclaw.json');
 
 interface GatewayCreds {
   port: number;
-  token: string;
+  token: string | null;
+  configFound: boolean;
+  tokenConfigured: boolean;
 }
 
-function readGatewayCreds(): GatewayCreds | null {
+function readGatewayCreds(): GatewayCreds {
   try {
     const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
     const cfg = JSON.parse(raw) as {
       gateway?: { port?: number; auth?: { token?: string } };
     };
     const port = cfg.gateway?.port ?? DEFAULT_PORT;
-    const token = cfg.gateway?.auth?.token;
-    if (!token) return null;
-    return { port, token };
+    const token = cfg.gateway?.auth?.token?.trim() || null;
+    return {
+      port,
+      token,
+      configFound: true,
+      tokenConfigured: Boolean(token),
+    };
   } catch {
-    return null;
+    return {
+      port: DEFAULT_PORT,
+      token: null,
+      configFound: false,
+      tokenConfigured: false,
+    };
+  }
+}
+
+function isOpenClawInstalled(): boolean {
+  try {
+    return execFileSync('which', ['openclaw'], { encoding: 'utf-8', timeout: 1500 }).trim().length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -67,15 +87,31 @@ class ClawDeskStub {
     const creds = readGatewayCreds();
     const checkedAt = Date.now();
 
-    if (!creds) {
+    if (!creds.configFound) {
+      const installed = isOpenClawInstalled();
       return {
         state: 'offline',
-        endpoint: `127.0.0.1:${DEFAULT_PORT}`,
-        port: DEFAULT_PORT,
-        tokenConfigured: false,
+        endpoint: `127.0.0.1:${creds.port}`,
+        port: creds.port,
+        tokenConfigured: creds.tokenConfigured,
         configFound: false,
         workspaceAvailable: false,
-        detail: 'OpenClaw config not found.',
+        detail: installed
+          ? 'OpenClaw is installed, but ~/.openclaw/openclaw.json is missing. Run `openclaw onboard` or `openclaw setup`.'
+          : 'OpenClaw CLI is not installed. Dictation works, but Command and Quick Ask need OpenClaw.',
+        checkedAt,
+      };
+    }
+
+    if (!creds.tokenConfigured) {
+      return {
+        state: 'offline',
+        endpoint: `127.0.0.1:${creds.port}`,
+        port: creds.port,
+        tokenConfigured: false,
+        configFound: true,
+        workspaceAvailable: false,
+        detail: 'OpenClaw gateway token is missing. Run `openclaw gateway restart` or re-run onboarding.',
         checkedAt,
       };
     }
@@ -86,7 +122,7 @@ class ClawDeskStub {
         state: 'connected',
         endpoint: `127.0.0.1:${creds.port}`,
         port: creds.port,
-        tokenConfigured: true,
+        tokenConfigured: creds.tokenConfigured,
         configFound: true,
         workspaceAvailable: true,
         detail: 'Gateway reachable.',
@@ -98,10 +134,10 @@ class ClawDeskStub {
       state: 'offline',
       endpoint: `127.0.0.1:${creds.port}`,
       port: creds.port,
-      tokenConfigured: true,
+      tokenConfigured: creds.tokenConfigured,
       configFound: true,
       workspaceAvailable: false,
-      detail: 'Gateway is not responding.',
+      detail: 'Gateway is not responding. Start it with `openclaw gateway start` or `openclaw gateway run`.',
       checkedAt,
     };
   }
@@ -111,7 +147,21 @@ class ClawDeskStub {
   }
 
   async getWorkspaceTarget(): Promise<{ success: boolean; url?: string; error?: string }> {
-    return { success: false, error: 'Debug console has been removed.' };
+    const creds = readGatewayCreds();
+    if (!creds.configFound) {
+      return { success: false, error: 'OpenClaw config not found. Run `openclaw onboard` first.' };
+    }
+    if (!creds.token) {
+      return { success: false, error: 'OpenClaw gateway token is missing. Re-run OpenClaw onboarding.' };
+    }
+    const reachable = await probePort(creds.port, 600);
+    if (!reachable) {
+      return { success: false, error: 'OpenClaw gateway is not running. Run `openclaw gateway start`.' };
+    }
+    return {
+      success: true,
+      url: `http://127.0.0.1:${creds.port}/#token=${encodeURIComponent(creds.token)}`,
+    };
   }
 
   showHome(): void { /* no-op — ClawDesk removed */ }

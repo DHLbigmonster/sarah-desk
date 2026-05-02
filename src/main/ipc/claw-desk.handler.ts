@@ -101,8 +101,7 @@ export function setupClawDeskHandlers(): void {
     IPC_CHANNELS.CLAW_DESK.SAVE_HOTKEY_CONFIG,
     async (_event, config: HotkeyConfig) => {
       try {
-        await hotkeyManager.apply(config);
-        return { success: true };
+        return hotkeyManager.apply(config);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { success: false, error: msg };

@@ -15,6 +15,7 @@ import path from 'node:path';
 import os from 'node:os';
 import log from 'electron-log';
 import { memoryService } from './memory.service';
+import { localToolsService } from '../local-tools';
 import type { AgentContext } from '../../../shared/types/agent';
 import type { AgentMemory } from './memory.service';
 
@@ -127,12 +128,59 @@ function sanitizeOpenClawError(stderr: string): string {
     .join('\n');
 }
 
+function shouldUseGatewayAgent(): boolean {
+  const value = process.env.SARAH_OPENCLAW_GATEWAY_AGENT;
+  if (!value) return true;
+  return !['0', 'false', 'off', 'no'].includes(value.toLowerCase());
+}
+
+function resolveGatewayPromptMode(): 'full' | 'minimal' | 'none' {
+  const value = process.env.SARAH_OPENCLAW_PROMPT_MODE;
+  if (value === 'full' || value === 'none') return value;
+  return 'minimal';
+}
+
+function resolveGatewayBootstrapMode(): 'full' | 'lightweight' {
+  return process.env.SARAH_OPENCLAW_BOOTSTRAP_MODE === 'full' ? 'full' : 'lightweight';
+}
+
+function resolveOpenClawAgentId(): string {
+  return process.env.SARAH_OPENCLAW_AGENT_ID?.trim() || 'main';
+}
+
+function resolveOpenClawModel(): string | null {
+  return process.env.SARAH_OPENCLAW_MODEL?.trim() || null;
+}
+
+function buildGatewayAgentParams(params: {
+  prompt: string;
+  sessionId: string;
+  runId: string;
+}): string {
+  const model = resolveOpenClawModel();
+  return JSON.stringify({
+    message: params.prompt,
+    agentId: resolveOpenClawAgentId(),
+    idempotencyKey: params.runId,
+    sessionId: params.sessionId,
+    thinking: process.env.SARAH_OPENCLAW_THINKING?.trim() || 'off',
+    timeout: Number(process.env.SARAH_OPENCLAW_TIMEOUT_SECONDS ?? 120),
+    promptMode: resolveGatewayPromptMode(),
+    bootstrapContextMode: resolveGatewayBootstrapMode(),
+    bootstrapContextRunKind: 'default',
+    modelRun: true,
+    cleanupBundleMcpOnRunEnd: true,
+    ...(model ? { model } : {}),
+  });
+}
+
 // ─── AgentService ─────────────────────────────────────────────────────────────
 
 export class AgentService extends EventEmitter {
   private proc: ReturnType<typeof spawn> | null = null;
   private running = false;
   private runVersion = 0;
+  private activeRunId: string | null = null;
 
   /** Queue for tasks submitted while another is running. */
   private pendingExecution: { instruction: string; context: AgentContext; resolve: () => void } | null = null;
@@ -181,20 +229,49 @@ export class AgentService extends EventEmitter {
     });
 
     const memory = memoryService.load();
-    const prompt = this.buildPrompt(instruction, context, memory);
+    const localToolsSummary = await localToolsService
+      .getAgentContextSummary()
+      .catch((error) => {
+        logger.warn('Failed to build local tools summary', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return 'Local tool detection unavailable.';
+      });
 
     return new Promise<void>((resolve) => {
       const tSpawn = Date.now();
+      const useGatewayAgent = shouldUseGatewayAgent();
+      const prompt = useGatewayAgent
+        ? this.buildGatewayPrompt(instruction, context, memory, localToolsSummary)
+        : this.buildPrompt(instruction, context, memory, localToolsSummary);
+      const runId = `sarah-${process.pid}-${Date.now().toString(36)}-${runVersion}`;
+      this.activeRunId = runId;
+      const gatewayParams = buildGatewayAgentParams({
+        prompt,
+        sessionId: this.sessionId,
+        runId,
+      });
       const proc = spawn(
         this.openclawBin,
-        [
-          'agent',
-          '--agent', 'main',
-          '--json',
-          '--thinking', 'minimal',
-          '--session-id', this.sessionId,
-          '--message', prompt,
-        ],
+        useGatewayAgent
+          ? [
+              'gateway',
+              'call',
+              'agent',
+              '--expect-final',
+              '--json',
+              '--timeout', String(Number(process.env.SARAH_OPENCLAW_GATEWAY_TIMEOUT_MS ?? 180_000)),
+              '--params', gatewayParams,
+            ]
+          : [
+              'agent',
+              '--agent', resolveOpenClawAgentId(),
+              '--json',
+              '--thinking', process.env.SARAH_OPENCLAW_THINKING?.trim() || 'off',
+              '--session-id', this.sessionId,
+              '--message', prompt,
+              ...(resolveOpenClawModel() ? ['--model', resolveOpenClawModel() as string] : []),
+            ],
         {
           env: { ...process.env, PATH: this.enhancedPath },
           shell: false,
@@ -230,8 +307,12 @@ export class AgentService extends EventEmitter {
 
           this.running = false;
           this.proc = null;
+          if (this.activeRunId === runId) {
+            this.activeRunId = null;
+          }
           const parsed = parseOpenClawResponse(stdoutBuf);
           logger.info('openclaw-timing', {
+            transport: useGatewayAgent ? 'gateway-call' : 'agent-cli',
             spawn_to_first_stderr_ms: tFirstStderr ? tFirstStderr - tSpawn : null,
             spawn_to_first_stdout_ms: tFirstStdout ? tFirstStdout - tSpawn : null,
             spawn_to_close_ms: tClose - tSpawn,
@@ -247,6 +328,9 @@ export class AgentService extends EventEmitter {
               await this.emitVisibleText(runVersion, parsed.text);
             }
             memoryService.appendAction(instruction, fullResponse);
+            if (fullResponse.trim()) {
+              memoryService.appendTurn(instruction, fullResponse);
+            }
             if (runVersion === this.runVersion) {
               this.emit('done');
             }
@@ -278,6 +362,9 @@ export class AgentService extends EventEmitter {
         }
         this.running = false;
         this.proc = null;
+        if (this.activeRunId === runId) {
+          this.activeRunId = null;
+        }
         logger.error('Failed to spawn openclaw', { code: err.code, bin: this.openclawBin });
         const message =
           err.code === 'ENOENT'
@@ -310,15 +397,36 @@ export class AgentService extends EventEmitter {
     }
 
     this.runVersion += 1;
+    const runId = this.activeRunId;
     if (this.proc) {
       this.proc.kill('SIGTERM');
       this.proc = null;
     }
+    if (runId && shouldUseGatewayAgent()) {
+      this.abortGatewayRun(runId);
+    }
+    this.activeRunId = null;
     this.running = false;
     if (emitDone) {
       this.emit('done');
     }
     logger.info('AgentService: aborted');
+  }
+
+  private abortGatewayRun(runId: string): void {
+    const sessionKey = `agent:${resolveOpenClawAgentId()}:explicit:${this.sessionId}`;
+    const params = JSON.stringify({ key: sessionKey, runId });
+    const proc = spawn(
+      this.openclawBin,
+      ['gateway', 'call', 'sessions.abort', '--json', '--timeout', '5000', '--params', params],
+      {
+        env: { ...process.env, PATH: this.enhancedPath },
+        shell: false,
+        stdio: 'ignore',
+        detached: true,
+      },
+    );
+    proc.unref();
   }
 
   /** Run the next queued task if one exists. Called after each task completes. */
@@ -339,7 +447,57 @@ export class AgentService extends EventEmitter {
 
   // ─── Prompt ────────────────────────────────────────────────────────────────
 
-  private buildPrompt(instruction: string, context: AgentContext, memory: AgentMemory): string {
+  private buildGatewayPrompt(
+    instruction: string,
+    context: AgentContext,
+    memory: AgentMemory,
+    localToolsSummary: string,
+  ): string {
+    const recentActionsStr =
+      memory.recent_actions.length > 0
+        ? memory.recent_actions
+            .slice(0, 3)
+            .map((a) => `- ${a.instruction}`)
+            .join('\n')
+        : '无';
+
+    const screenContext = [
+      `应用：${context.appName || '未知'}`,
+      context.windowTitle ? `窗口：${context.windowTitle}` : '',
+      context.url ? `URL：${context.url}` : '',
+      context.screenshotPath ? `截图：${context.screenshotPath}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const contextHint = context.url || context.screenshotPath
+      ? '如果任务依赖当前屏幕，请优先使用上面的 URL 或截图路径。'
+      : '当前没有 URL 或截图；如果用户指代“这个页面/当前内容”，请要求用户补充 URL 或正文。';
+
+    return `你是 Sarah 的快速桌面助手。请用中文直接回答，优先简洁。
+
+当前屏幕上下文：
+${screenContext}
+
+上下文原则：
+${contextHint}
+
+最近 Sarah 操作：
+${recentActionsStr}
+
+本机 Local Tools：
+${localToolsSummary}
+
+用户请求：
+${instruction}`;
+  }
+
+  private buildPrompt(
+    instruction: string,
+    context: AgentContext,
+    memory: AgentMemory,
+    localToolsSummary: string,
+  ): string {
     const prefs = JSON.stringify(memory.preferences, null, 2);
 
     const recentActionsStr =
@@ -349,10 +507,6 @@ export class AgentService extends EventEmitter {
             .map((a) => `• ${a.instruction}`)
             .join('\n')
         : '（无）';
-
-    const larkNote = this.larkBin
-      ? `lark CLI 路径：${this.larkBin}`
-      : '（lark CLI 未检测到，请先安装飞书命令行工具）';
 
     const screenContext = [
       `应用：${context.appName}`,
@@ -429,8 +583,8 @@ export class AgentService extends EventEmitter {
 - 如果有截图 → 直接分析截图中的可见内容来完成任务
 - 不要因为 appName 是 CodePilot 就拒绝执行或要求用户提供 URL
 
-═══ 工具路径 ═══
-${larkNote}
+═══ 本机 Local Tools（检测结果，不代表自动授权） ═══
+${localToolsSummary}
 
 ═══ 当前屏幕上下文 ═══
 ${screenContext}

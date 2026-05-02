@@ -11,27 +11,29 @@ interface RefinementDecision {
   reasons: string[];
 }
 
-const FAST_CLEAN_MAX_LENGTH = 72;
-const SMART_STRUCTURED_MIN_LENGTH = 96;
+const FAST_CLEAN_MAX_LENGTH = 28;
+const SMART_STRUCTURED_MIN_LENGTH = 40;
 
-const FAST_CLEAN_SYSTEM_PROMPT = `你负责语音听写轻整理，不是聊天。
+const FAST_CLEAN_SYSTEM_PROMPT = `你负责把语音听写整理成可以直接发送或输入的文字，不是聊天。
 
 规则：
 1. 保留原意，不得新增原文没有的信息。
-2. 只做去口头禅、删重复、补标点、轻微断句。
-3. 不要强行改写句子结构，不要硬拆成列表。
-4. 输出自然、简洁，像正常打字后的中文。
-5. 只输出最终整理文本，不要解释。`;
+2. 删除口头禅、重复词、自我修正残片，补齐中文标点。
+3. 可以轻微调整语序，让它像人打出来的自然中文。
+4. 不要硬拆成列表；除非原文明确是在列事项。
+5. 输出应该像熟练打字者直接输入的自然中文，而非机械转写。
+6. 只输出最终整理文本，不要解释。`;
 
-const SMART_STRUCTURED_SYSTEM_PROMPT = `你负责语音听写结构化整理，不是聊天。
+const SMART_STRUCTURED_SYSTEM_PROMPT = `你负责把中文语音听写改写成接近 Typeless 风格的高质量输入文本，不是聊天。
 
 规则：
 1. 保留原意，不得新增原文没有的观点、结论或行动项。
-2. 允许重组句子顺序，修复边想边说造成的断裂表达。
-3. 适合整理长段、列事项、计划、总结、边想边说的口述。
-4. 如果原文明显是事项列表或计划，可整理成清晰的分段或列表；如果不是，就保持自然段。
-5. 删除口头禅、重复、停顿词，补齐标点与段落。
-6. 只输出最终整理文本，不要解释。`;
+2. 主动修复边想边说造成的断句、重复、倒装、自我修正和半截表达。
+3. 删除“嗯、呃、就是、然后、那个、怎么说、不对、等一下”等不影响意思的口语残片。
+4. 补齐自然的标点和段落，让输出像已经认真打磨过的中文输入。
+5. 如果原文明显是事项、计划、步骤或总结，可以整理成短段落或列表；普通口述保持自然段。
+6. 如果原文确实没说完，不要编造结尾，只把已有内容整理顺。
+7. 只输出最终整理文本，不要解释。`;
 
 function normalizePunctuation(text: string): string {
   return text
@@ -81,7 +83,7 @@ function localStructuredFallback(text: string): string {
 }
 
 function buildUserPrompt(transcript: string): string {
-  return `请整理这段中文语音转写文本，直接输出最终文本：
+  return `请把下面这段中文语音转写整理成可直接输入的最终文本：
 
 ${transcript}`;
 }
@@ -102,17 +104,17 @@ export class DictationRefinementService {
 
     const repeatedPhraseCount = [...freq.values()].filter((value) => value > 1).length;
 
-    if (text.length > SMART_STRUCTURED_MIN_LENGTH) reasons.push('long_text');
+    if (text.length >= SMART_STRUCTURED_MIN_LENGTH) reasons.push('long_or_medium_text');
     if (hasListShape) reasons.push('list_shape');
     if (hasRestartShape) reasons.push('restart_shape');
-    if (fillerCount >= 3) reasons.push('heavy_fillers');
+    if (fillerCount >= 1) reasons.push('spoken_fillers');
     if (repeatedPhraseCount >= 2) reasons.push('repeated_phrases');
 
     if (
-      text.length > SMART_STRUCTURED_MIN_LENGTH ||
+      text.length >= SMART_STRUCTURED_MIN_LENGTH ||
       hasListShape ||
       hasRestartShape ||
-      fillerCount >= 3 ||
+      (text.length > FAST_CLEAN_MAX_LENGTH && fillerCount >= 1) ||
       repeatedPhraseCount >= 2
     ) {
       return { mode: 'smart_structured_model', reasons };
@@ -152,6 +154,12 @@ export class DictationRefinementService {
       modelConfigured: lightweightRefinementClient.isConfigured(),
     });
 
+    // Log original text for debugging
+    logger.info('dictation_raw_input', {
+      mode: decision.mode,
+      originalText: precleaned,
+    });
+
     try {
       const modelResult = await this.refineWithModel(precleaned, decision.mode);
       if (modelResult?.trim()) {
@@ -160,6 +168,8 @@ export class DictationRefinementService {
           mode: decision.mode,
           textLength: precleaned.length,
           outputLength: normalizedResult.length,
+          originalText: precleaned,
+          refinedText: normalizedResult,
         });
         return normalizedResult;
       }
@@ -175,7 +185,14 @@ export class DictationRefinementService {
       });
     }
 
-    return this.refineLocally(precleaned, decision.mode);
+    // Fallback to local cleaning
+    const localResult = this.refineLocally(precleaned, decision.mode);
+    logger.info('local_refinement_fallback', {
+      mode: decision.mode,
+      originalText: precleaned,
+      refinedText: localResult,
+    });
+    return localResult;
   }
 }
 

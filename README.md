@@ -41,7 +41,7 @@ The trigger key is fully customizable: Right Ctrl, Right Alt, CapsLock, Right Cm
 
 **Refinement**: After transcription, an optional LLM pass (Volcengine Ark) cleans up the text — fixing punctuation, removing filler words, and restructuring for clarity. This is transparent to the user.
 
-**Agent Execution**: In Command and Quick Ask modes, the transcribed text is handed to [OpenClaw](https://github.com/openclaw), an external AI agent runtime. Sarah spawns it as a subprocess with rich context (current app, window title, screenshot, URL) so the agent can make informed decisions. OpenClaw has access to skills like `web-browser` (CDP-based web scraping with login state), `lark-doc`, `lark-im`, and others.
+**Agent Execution**: In Command and Quick Ask modes, the transcribed text is handed to [OpenClaw](https://github.com/openclaw), an external AI agent runtime. Sarah talks to the local OpenClaw Gateway when available and uses a lightweight agent prompt by default so short answers do not pay the full workspace-context cost. It still passes rich context (current app, window title, screenshot, URL) when the user asks Sarah to act on the current screen.
 
 **Context Capture**: When you press the hotkey for Command mode, Sarah captures a screenshot and metadata of your current app *before* its own window appears. This means the agent sees what you were looking at, not the Sarah interface.
 
@@ -70,8 +70,9 @@ Go to [**GitHub Releases**](https://github.com/DHLbigmonster/sarah-desk/releases
 | Requirement | For |
 |-------------|-----|
 | **macOS 12+** | Required (runtime) |
-| **Node.js 18+** | Building from source only |
+| **Node.js 22.12+** | Building from source only |
 | **pnpm** | Building from source only (`npm install -g pnpm`) |
+| **OpenClaw CLI + Gateway** | Command and Quick Ask only |
 
 If you use the one-line install or download from Releases, you only need macOS 12+.
 
@@ -124,7 +125,7 @@ Volcengine ASR provides significantly better Chinese recognition than Apple Spee
 
 Enter credentials in Sarah via either method:
 
-- **Settings UI**: Open Sarah Settings → Models → click the voice provider card → fill in APP_ID and ACCESS_TOKEN → Save
+- **Settings UI**: Open Sarah Settings → configure the Speech provider card → fill in APP_ID and ACCESS_TOKEN → Save
 - **`.env` file**: Copy `.env.example` to `.env` and fill in the values. Sarah reads from the credential store first, then falls back to `.env`.
 
 ### Text Refinement (Optional)
@@ -135,7 +136,7 @@ For cleaner dictation output (punctuation, grammar), configure an Ark model:
 2. Create a text generation endpoint (e.g., Doubao Lite)
 3. Set `ARK_API_KEY` and `DICTATION_REFINEMENT_ENDPOINT_ID` in Settings or `.env`
 
-### OpenClaw (Required for Command / Quick Ask)
+### OpenClaw Gateway (Required for Command / Quick Ask)
 
 Sarah depends on the `openclaw` CLI for AI agent capabilities. **Dictation works without OpenClaw.**
 
@@ -145,12 +146,28 @@ brew install openclaw
 # or
 npm install -g openclaw
 
-# Authenticate
-openclaw login
+# First-time setup
+openclaw onboard
+
+# Start the local gateway service
+openclaw gateway start
 
 # Verify
-openclaw --version
+openclaw gateway probe
 ```
+
+Sarah reads `~/.openclaw/openclaw.json`, detects the configured local port/token, and probes `127.0.0.1:<port>`. If the config is missing, the token is missing, or the Gateway is not running, Sarah Settings and the menu bar popover show the exact next command to run.
+
+Advanced overrides for Sarah's OpenClaw calls:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `SARAH_OPENCLAW_GATEWAY_AGENT` | `true` | Use `openclaw gateway call agent` instead of the older `openclaw agent` subprocess path. |
+| `SARAH_OPENCLAW_AGENT_ID` | `main` | OpenClaw agent id. |
+| `SARAH_OPENCLAW_THINKING` | `off` | Thinking level for Sarah quick turns. |
+| `SARAH_OPENCLAW_PROMPT_MODE` | `minimal` | Prompt mode passed to the Gateway (`minimal`, `full`, or `none`). |
+| `SARAH_OPENCLAW_BOOTSTRAP_MODE` | `lightweight` | Bootstrap context mode (`lightweight` or `full`). |
+| `SARAH_OPENCLAW_MODEL` | unset | Optional model override, e.g. `provider/model`. |
 
 See the [OpenClaw documentation](https://github.com/openclaw) for details.
 
@@ -174,12 +191,12 @@ src/main/                        Electron main process
   services/asr/                  Speech-to-text (Volcengine + Apple Speech)
   services/config/               Credential store, config resolution
   services/keyboard/             Global hotkey handling (uiohook)
+  services/local-tools/          Local CLI/tool detection and safety metadata
   services/push-to-talk/         Voice mode state machine
   services/text-input/           Cursor text insertion
   windows/                       Window managers (floating HUD, agent overlay, settings)
 src/renderer/
   mini-settings/                 Menu bar control center
-  clawdesk/pages/settings/       Full settings UI
   src/modules/agent/             Agent overlay panel
   src/modules/asr/               Floating voice HUD
 src/shared/                      IPC constants and type definitions
@@ -209,7 +226,9 @@ Checks source wiring, packaged app contents, native modules, and runs a packaged
 | Problem | Solution |
 |---------|----------|
 | **"openclaw CLI 未找到"** | Install OpenClaw and ensure `openclaw` is on your PATH. Run `which openclaw` to verify. |
-| **"OpenClaw 未登录或鉴权失败"** | Run `openclaw login` in your terminal. |
+| **"OpenClaw config not found"** | Run `openclaw onboard` or `openclaw setup`. |
+| **"Gateway is not responding"** | Run `openclaw gateway start`, then `openclaw gateway probe`. |
+| **OpenClaw answers are slow** | Keep Sarah on the Gateway path (`SARAH_OPENCLAW_GATEWAY_AGENT=true`) and the lightweight defaults. Full prompt/bootstrap modes are much slower. |
 | **No audio / ASR errors** | Check `VOLCENGINE_APP_ID` and `VOLCENGINE_ACCESS_TOKEN` in Settings or `.env`. |
 | **Hotkeys not working** | Grant Accessibility + Input Monitoring in System Settings. Change trigger key in Settings → Hotkeys. |
 | **Text not inserting** | Grant Accessibility permission. |

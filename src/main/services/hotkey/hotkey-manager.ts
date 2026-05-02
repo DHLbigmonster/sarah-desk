@@ -8,7 +8,7 @@ import log from 'electron-log';
 import { clawDeskSettingsService } from '../clawdesk/settings.service';
 import { permissionsService } from '../permissions';
 import { voiceModeManager } from '../push-to-talk/voice-mode-manager';
-import { clawDeskMainWindow } from '../../windows';
+import { miniSettingsWindow } from '../../windows';
 import type { HotkeyConfig, HotkeyCheckResult } from '../../../shared/types/clawdesk-settings';
 
 const logger = log.scope('hotkey-manager');
@@ -118,7 +118,7 @@ class HotkeyManager {
   }
 
   private registerToggleWindow(accelerator: string): boolean {
-    const registered = globalShortcut.register(accelerator, () => clawDeskMainWindow.toggle());
+    const registered = globalShortcut.register(accelerator, () => miniSettingsWindow.show());
     if (registered) {
       logger.info('Toggle window shortcut registered', { accelerator });
     } else {

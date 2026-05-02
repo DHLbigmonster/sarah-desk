@@ -25,5 +25,12 @@ export type {
   AgentApi,
   PushToTalkApi,
   ClawDeskApi,
+  LocalToolsApi,
   MiniApi,
 } from './ipc-api';
+
+export type {
+  LocalToolCapability,
+  LocalToolsSnapshot,
+  LocalToolStatus,
+} from './local-tools';

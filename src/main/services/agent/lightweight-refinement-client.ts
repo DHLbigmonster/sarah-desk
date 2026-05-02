@@ -45,32 +45,38 @@ export function loadLightweightRefinementConfig(): LightweightRefinementConfig |
 }
 
 export class LightweightRefinementClient {
-  constructor(private readonly config: LightweightRefinementConfig | null = loadLightweightRefinementConfig()) {}
+  constructor(private readonly configOverride: LightweightRefinementConfig | null = null) {}
+
+  private getConfig(): LightweightRefinementConfig | null {
+    return this.configOverride ?? loadLightweightRefinementConfig();
+  }
 
   isConfigured(): boolean {
-    return Boolean(this.config);
+    return Boolean(this.getConfig());
   }
 
   async refine(request: LightweightRefinementRequest): Promise<string | null> {
-    if (!this.config) {
+    const config = this.getConfig();
+
+    if (!config) {
       logger.warn('Lightweight refinement model not configured');
       throw new Error('Lightweight refinement model not configured');
     }
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), config.timeoutMs);
 
     try {
-      const response = await fetch(joinUrl(this.config.baseUrl, '/chat/completions'), {
+      const response = await fetch(joinUrl(config.baseUrl, '/chat/completions'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.config.apiKey}`,
+          Authorization: `Bearer ${config.apiKey}`,
         },
         body: JSON.stringify({
-          model: this.config.targetModel,
-          temperature: this.config.temperature,
-          max_tokens: this.config.maxTokens,
+          model: config.targetModel,
+          temperature: config.temperature,
+          max_tokens: config.maxTokens,
           messages: [
             { role: 'system', content: request.systemPrompt },
             { role: 'user', content: request.userPrompt },

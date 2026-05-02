@@ -99,6 +99,7 @@ type SummaryReadyCallback = (summary: DailySummary) => void;
 
 export class ConsolidationService {
   private onReadyCallback: SummaryReadyCallback | null = null;
+  private scheduler: NodeJS.Timeout | null = null;
 
   /** Register a callback that fires when a new summary is created. */
   onSummaryReady(cb: SummaryReadyCallback): void {
@@ -118,6 +119,26 @@ export class ConsolidationService {
     this.consolidate(yesterday).catch((err: Error) => {
       logger.error('Consolidation failed', { err: err.message });
     });
+  }
+
+  startScheduler(): void {
+    if (this.scheduler) return;
+    this.runIfNeeded();
+
+    const scheduleNext = (): void => {
+      const now = new Date();
+      const next = new Date(now);
+      next.setDate(now.getDate() + 1);
+      next.setHours(0, 10, 0, 0);
+      const delayMs = Math.max(60_000, next.getTime() - now.getTime());
+      this.scheduler = setTimeout(() => {
+        this.runIfNeeded();
+        scheduleNext();
+      }, delayMs);
+      this.scheduler.unref?.();
+    };
+
+    scheduleNext();
   }
 
   private async consolidate(date: string): Promise<void> {
@@ -158,9 +179,32 @@ export class ConsolidationService {
   private runOpenClaw(prompt: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const openclawBin = resolveOpenClaw();
+      const params = JSON.stringify({
+        message: prompt,
+        agentId: process.env.SARAH_OPENCLAW_AGENT_ID?.trim() || 'main',
+        idempotencyKey: `sarah-summary-${Date.now().toString(36)}`,
+        sessionId: `sarah-summary-${Date.now().toString(36)}`,
+        thinking: 'off',
+        timeout: 120,
+        promptMode: 'minimal',
+        bootstrapContextMode: 'lightweight',
+        bootstrapContextRunKind: 'default',
+        modelRun: true,
+        cleanupBundleMcpOnRunEnd: true,
+      });
       const proc = spawn(
         openclawBin,
-        ['agent', '--agent', 'main', '--json', '--message', prompt],
+        [
+          'gateway',
+          'call',
+          'agent',
+          '--expect-final',
+          '--json',
+          '--timeout',
+          '180000',
+          '--params',
+          params,
+        ],
         { env: { ...process.env }, shell: false },
       );
 
