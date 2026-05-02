@@ -377,6 +377,8 @@ const miniApi: MiniApi = {
     ipcRenderer.invoke(IPC_CHANNELS.MINI.QUIT),
   showLogs: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.SHOW_LOGS),
+  completeOnboarding: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.COMPLETE_ONBOARDING),
   testRecorderWindow: (): Promise<{ success: boolean; detail: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.TEST_RECORDER_WINDOW),
   testIpc: (): Promise<{ success: boolean; detail: string }> =>

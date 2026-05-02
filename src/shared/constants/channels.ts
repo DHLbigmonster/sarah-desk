@@ -145,6 +145,8 @@ export const IPC_CHANNELS = {
     QUIT: 'mini:quit',
     /** Open the current electron-log output location */
     SHOW_LOGS: 'mini:show-logs',
+    /** Mark first-run onboarding complete */
+    COMPLETE_ONBOARDING: 'mini:complete-onboarding',
     /** Renderer -> Main: hidden recorder renderer and preload are alive */
     RECORDER_READY: 'recorder:ready',
     /** Main -> Renderer: ping hidden recorder renderer */

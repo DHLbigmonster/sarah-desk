@@ -45,6 +45,11 @@ export interface MiniAgentStatus {
   detail: string;
 }
 
+export interface MiniOnboardingStatus {
+  completed: boolean;
+  showWelcome: boolean;
+}
+
 export interface MiniStatus {
   mode: 'mini';
   gateway: MiniGatewayStatus;
@@ -54,4 +59,5 @@ export interface MiniStatus {
   hotkeys: MiniHotkeyStatus;
   recorder: MiniRecorderStatus;
   permissions: MiniPermissionStatus;
+  onboarding: MiniOnboardingStatus;
 }

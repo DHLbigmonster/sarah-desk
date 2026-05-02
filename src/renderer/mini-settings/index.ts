@@ -1,4 +1,5 @@
 import type { MiniStatus } from '../../shared/types/mini';
+import type { DailySummary } from '../../shared/types/agent';
 import type {
   LocalToolApprovalScope,
   LocalToolCapability,
@@ -254,6 +255,128 @@ function healthSummary(status: MiniStatus, missingPerms: string[], recorderReady
   };
 }
 
+interface WelcomeCheckItem {
+  label: string;
+  detail: string;
+  tone: 'ok' | 'warn' | 'error';
+  done: boolean;
+}
+
+function buildWelcomeChecklist(status: MiniStatus, localTools: LocalToolsSnapshot): WelcomeCheckItem[] {
+  const perms = status.permissions;
+  return [
+    {
+      label: 'Microphone access',
+      detail: perms.microphone === 'granted' ? 'Granted' : 'Allow Sarah to use your microphone',
+      tone: perms.microphone === 'granted' ? 'ok' : 'warn',
+      done: perms.microphone === 'granted',
+    },
+    {
+      label: 'Accessibility',
+      detail: perms.accessibility ? 'Granted' : 'Required for hold-to-talk shortcuts',
+      tone: perms.accessibility ? 'ok' : 'warn',
+      done: perms.accessibility,
+    },
+    {
+      label: 'Input Monitoring',
+      detail: perms.inputMonitoring ? 'Granted' : 'Required to capture trigger keys',
+      tone: perms.inputMonitoring ? 'ok' : 'warn',
+      done: perms.inputMonitoring,
+    },
+    {
+      label: 'Speech provider',
+      detail: status.asrProvider.configured
+        ? `${status.asrProvider.name} configured`
+        : 'Apple Speech fallback (works offline)',
+      tone: 'ok',
+      done: true,
+    },
+    {
+      label: 'OpenClaw agent',
+      detail: status.agent.available
+        ? 'Ready for Command and Quick Ask'
+        : 'Optional · Dictation works without it',
+      tone: status.agent.available ? 'ok' : 'warn',
+      done: status.agent.available,
+    },
+    {
+      label: 'Local tools',
+      detail: `${localTools.ready} ready, ${localTools.needsSetup} need setup`,
+      tone: localTools.ready > 0 ? 'ok' : 'warn',
+      done: localTools.ready > 0,
+    },
+  ];
+}
+
+function welcomeCard(status: MiniStatus, localTools: LocalToolsSnapshot): string {
+  const items = buildWelcomeChecklist(status, localTools);
+  const blocking = items.filter((item) => !item.done && item.tone !== 'ok');
+  const ctaLabel = blocking.length === 0 ? "I'm ready" : 'Continue anyway';
+  const itemsHtml = items
+    .map(
+      (item) => `
+        <li class="welcome-item ${item.done ? 'done' : item.tone}">
+          <span class="status-dot ${item.tone}"></span>
+          <div>
+            <span class="welcome-label">${escapeHtml(item.label)}</span>
+            <span class="welcome-detail">${escapeHtml(item.detail)}</span>
+          </div>
+        </li>
+      `,
+    )
+    .join('');
+  return `
+    <section class="welcome-card">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">Welcome</span>
+          <h2>Set up Sarah</h2>
+        </div>
+        <span class="section-detail">First run</span>
+      </div>
+      <p class="section-copy">Sarah is your voice control center. Grant the system permissions below, then you can dictate, command, or ask anywhere on macOS.</p>
+      <ul class="welcome-list">${itemsHtml}</ul>
+      <div class="welcome-actions">
+        <button id="welcome-permissions" class="utility-action" type="button">Open System Settings</button>
+        <button id="welcome-done" class="primary-action" type="button">${escapeHtml(ctaLabel)}</button>
+      </div>
+    </section>
+  `;
+}
+
+function localIsoDate(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function summaryCard(summaries: DailySummary[]): string {
+  if (summaries.length === 0) return '';
+  const today = localIsoDate();
+  const sorted = [...summaries].sort((a, b) => (a.date < b.date ? 1 : -1));
+  const latest = sorted[0];
+  const isToday = latest.date === today;
+  const dateLabel = isToday ? 'Today' : latest.date;
+  const turnLabel = `${latest.turnCount} turn${latest.turnCount === 1 ? '' : 's'}`;
+  const truncated = latest.summary.length > 360
+    ? `${latest.summary.slice(0, 360).trimEnd()}…`
+    : latest.summary;
+  return `
+    <section class="summary-card">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">Daily Memory</span>
+          <h2>${escapeHtml(dateLabel)}</h2>
+        </div>
+        <span class="section-detail">${escapeHtml(turnLabel)}</span>
+      </div>
+      <p class="summary-body">${escapeHtml(truncated)}</p>
+    </section>
+  `;
+}
+
 function statusRow(label: string, value: string, detail: string, tone: string): string {
   return `
     <div class="status-row">
@@ -267,7 +390,7 @@ function statusRow(label: string, value: string, detail: string, tone: string): 
   `;
 }
 
-function render(status: MiniStatus, localTools: LocalToolsSnapshot): void {
+function render(status: MiniStatus, localTools: LocalToolsSnapshot, summaries: DailySummary[]): void {
   const recorderReady = status.recorder.created && status.recorder.ready;
   const perms = status.permissions;
   const missingPerms = [
@@ -311,6 +434,8 @@ function render(status: MiniStatus, localTools: LocalToolsSnapshot): void {
       </div>
 
       ${renderNotice()}
+      ${status.onboarding.showWelcome ? welcomeCard(status, localTools) : ''}
+      ${summaryCard(summaries)}
       ${hotkeyPicker(status.hotkeys.hotkeyConfig, hotkeyDisabled)}
       ${localToolsCard(localTools)}
 
@@ -361,6 +486,13 @@ function render(status: MiniStatus, localTools: LocalToolsSnapshot): void {
     void window.api.mini.quit();
   });
 
+  document.getElementById('welcome-permissions')?.addEventListener('click', () => {
+    void window.api.mini.openPermissions();
+  });
+  document.getElementById('welcome-done')?.addEventListener('click', () => {
+    void completeWelcome();
+  });
+
   document.querySelectorAll<HTMLButtonElement>('[data-trigger-key]').forEach((button) => {
     button.addEventListener('click', () => {
       const key = button.dataset.triggerKey as VoiceTriggerKey | undefined;
@@ -408,15 +540,31 @@ async function load(): Promise<void> {
   const dot = document.getElementById('refresh-dot');
   dot?.classList.add('active');
   try {
-    const [status, localTools] = await Promise.all([
+    const [status, localTools, summariesResult] = await Promise.all([
       window.api.mini.getStatus(),
       window.api.localTools.getSnapshot(),
+      window.api.agent.getDailySummaries().catch(() => [] as DailySummary[]),
     ]);
-    render(status, localTools);
+    render(status, localTools, summariesResult);
   } catch (error) {
     renderError(error);
   } finally {
     setTimeout(() => dot?.classList.remove('active'), 400);
+  }
+}
+
+async function completeWelcome(): Promise<void> {
+  notice = null;
+  try {
+    await window.api.mini.completeOnboarding();
+    notice = { tone: 'ok', message: 'Welcome aboard. You can revisit setup any time.' };
+    await load();
+  } catch (error) {
+    notice = {
+      tone: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    };
+    await load();
   }
 }
 

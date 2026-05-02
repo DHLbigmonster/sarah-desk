@@ -232,6 +232,10 @@ async function getMiniStatus(): Promise<MiniStatus> {
       screenRecording: screenRecordingStatus,
       inputMonitoring: voiceModeManager.isReady,
     },
+    onboarding: {
+      completed: !firstLaunchService.isFirstLaunch(),
+      showWelcome: firstLaunchService.isFirstLaunch(),
+    },
   };
 }
 
@@ -378,6 +382,10 @@ function setupMiniIpcHandlers(): void {
     const logPath = app.getPath('logs');
     const error = await shell.openPath(logPath);
     return { success: error === '', error: error || undefined };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.COMPLETE_ONBOARDING, () => {
+    firstLaunchService.markComplete();
+    return { success: true };
   });
   ipcMain.handle(IPC_CHANNELS.MINI.TEST_RECORDER_WINDOW, () => testRecorderWindow());
   ipcMain.handle(IPC_CHANNELS.MINI.TEST_IPC, () => testRecorderIpc());
@@ -620,31 +628,13 @@ app.on('ready', async () => {
     bundleId: app.getName(),
     execPath: process.execPath,
   });
-  if (missing.length > 0 && !smokeTestMode) {
-    if (firstLaunchService.isFirstLaunch()) {
-      // Enhanced first-launch notification with clear instructions
-      if (Notification.isSupported()) {
-        const n = new Notification({
-          title: '欢迎使用 Sarah! 首次设置',
-          body: [
-            'Sarah 需要以下系统权限才能正常工作：',
-            '',
-            missing.map((p) => `  - ${p}`).join('\n'),
-            '',
-            '请在「系统设置 → 隐私与安全性」中逐一启用，然后重启 Sarah。',
-            'Dictation（听写）不需要 Open Claw 或火山引擎配置即可使用。',
-          ].join('\n'),
-          silent: false,
-        });
-        n.on('click', () => {
-          permissionsService.openKeyboardPermissionSettings();
-        });
-        n.show();
-      }
-      firstLaunchService.markComplete();
-    } else {
-      permissionsService.showPermissionNotification(missing);
-    }
+  if (!smokeTestMode && firstLaunchService.isFirstLaunch()) {
+    // First launch: open Mini Settings as the onboarding surface.
+    // The renderer shows a welcome checklist and calls completeOnboarding()
+    // when the user is ready. Don't auto-mark complete here.
+    miniSettingsWindow.show();
+  } else if (missing.length > 0 && !smokeTestMode) {
+    permissionsService.showPermissionNotification(missing);
   }
 
   logger.info('sarah-desk ready in Mini mode. Sarah Debug Console stays hidden until explicitly opened.');

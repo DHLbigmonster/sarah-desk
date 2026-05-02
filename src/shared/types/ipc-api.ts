@@ -111,6 +111,7 @@ export interface MiniApi {
   toggleCommand: () => Promise<{ success: boolean }>;
   quit: () => Promise<{ success: boolean }>;
   showLogs: () => Promise<{ success: boolean; error?: string }>;
+  completeOnboarding: () => Promise<{ success: boolean }>;
   testRecorderWindow: () => Promise<{ success: boolean; detail: string }>;
   testIpc: () => Promise<{ success: boolean; detail: string }>;
   testAsrMock: () => Promise<{ success: boolean; detail: string }>;

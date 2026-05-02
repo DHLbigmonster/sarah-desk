@@ -146,6 +146,7 @@ section('IPC string checks');
   'local-tools:set-approval',
   'local-tools:revoke-approval',
   'local-tools:execute',
+  'mini:complete-onboarding',
 ].forEach((needle) => contains('src/shared/constants/channels.ts', needle, needle));
 
 section('Build config checks');

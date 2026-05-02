@@ -255,6 +255,96 @@ h1 {
     rgba(0, 0, 0, 0.1);
 }
 
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.025)),
+    rgba(0, 0, 0, 0.12);
+}
+
+.summary-body {
+  margin: 0;
+  color: rgba(244, 245, 240, 0.78);
+  font-size: 11px;
+  line-height: 1.55;
+  letter-spacing: 0.005em;
+  white-space: pre-wrap;
+}
+
+.welcome-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(186, 168, 122, 0.32);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(186, 168, 122, 0.12), rgba(186, 168, 122, 0.04)),
+    rgba(0, 0, 0, 0.18);
+}
+
+.welcome-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.welcome-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.welcome-item.done {
+  background: rgba(112, 168, 124, 0.1);
+}
+
+.welcome-item.warn {
+  background: rgba(216, 180, 100, 0.08);
+}
+
+.welcome-item.error {
+  background: rgba(220, 130, 120, 0.1);
+}
+
+.welcome-label {
+  display: block;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 11px;
+  font-weight: 720;
+  letter-spacing: 0.005em;
+}
+
+.welcome-detail {
+  display: block;
+  margin-top: 1px;
+  color: rgba(244, 245, 240, 0.5);
+  font-size: 10px;
+  letter-spacing: 0.005em;
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.welcome-actions .primary-action,
+.welcome-actions .utility-action {
+  flex: 1;
+}
+
 .section-heading {
   display: flex;
   justify-content: space-between;
