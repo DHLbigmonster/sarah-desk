@@ -111,3 +111,4 @@ dist/
 
 # Compiled Apple Speech helper binary (built from scripts/apple-speech-helper.swift)
 scripts/apple-speech-helper
+.claude/

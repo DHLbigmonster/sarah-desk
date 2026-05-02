@@ -121,6 +121,12 @@ export const IPC_CHANNELS = {
   LOCAL_TOOLS: {
     /** Detect local tools, auth state, safe capabilities, and setup gaps */
     GET_SNAPSHOT: 'local-tools:get-snapshot',
+    /** Grant approval for a capability (Renderer -> Main) */
+    SET_APPROVAL: 'local-tools:set-approval',
+    /** Revoke approval for a capability (Renderer -> Main) */
+    REVOKE_APPROVAL: 'local-tools:revoke-approval',
+    /** Execute a capability (Renderer -> Main) */
+    EXECUTE: 'local-tools:execute',
   },
   MINI: {
     /** Read current Mini runtime status for the settings window */

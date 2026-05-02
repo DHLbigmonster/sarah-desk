@@ -1,5 +1,12 @@
 import type { MiniStatus } from '../../shared/types/mini';
-import type { LocalToolHealth, LocalToolsSnapshot, LocalToolStatus } from '../../shared/types/local-tools';
+import type {
+  LocalToolApprovalScope,
+  LocalToolCapability,
+  LocalToolHealth,
+  LocalToolId,
+  LocalToolsSnapshot,
+  LocalToolStatus,
+} from '../../shared/types/local-tools';
 import {
   SAFE_TRIGGER_KEYS,
   VOICE_TRIGGER_KEY_LABELS,
@@ -115,19 +122,35 @@ function localToolTone(health: LocalToolHealth): string {
   }
 }
 
+function renderCapability(toolId: LocalToolId, capability: LocalToolCapability): string {
+  const approved = Boolean(capability.approval);
+  const consent = capability.requiresConsent;
+  const dataset = `data-tool-id="${escapeHtml(toolId)}" data-capability-id="${escapeHtml(capability.id)}"`;
+  const stateText = !consent
+    ? 'safe'
+    : approved
+      ? `approved · ${capability.approval?.scope ?? 'always'}`
+      : 'needs approval';
+  const action = !consent
+    ? ''
+    : approved
+      ? `<button class="chip-action revoke" data-approval-action="revoke" ${dataset} type="button">Revoke</button>`
+      : `<button class="chip-action approve" data-approval-action="approve" ${dataset} type="button">Approve</button>`;
+  return `
+    <span class="tool-chip ${consent ? 'consent' : ''} ${approved ? 'approved' : ''}" title="${escapeHtml(capability.description)}">
+      <span class="chip-label">${escapeHtml(capability.label)}</span>
+      <span class="chip-state">${escapeHtml(stateText)}</span>
+      ${action}
+    </span>
+  `;
+}
+
 function renderCapabilities(tool: LocalToolStatus): string {
   const enabled = tool.capabilities.filter((capability) => capability.enabled);
   if (enabled.length === 0) {
     return '<span class="tool-chip muted">No enabled actions</span>';
   }
-  return enabled
-    .slice(0, 3)
-    .map((capability) => `
-      <span class="tool-chip ${capability.requiresConsent ? 'consent' : ''}">
-        ${escapeHtml(capability.label)}${capability.requiresConsent ? ' · approve' : ''}
-      </span>
-    `)
-    .join('');
+  return enabled.slice(0, 4).map((capability) => renderCapability(tool.id, capability)).join('');
 }
 
 function renderLocalTool(tool: LocalToolStatus): string {
@@ -345,6 +368,16 @@ function render(status: MiniStatus, localTools: LocalToolsSnapshot): void {
       void saveTriggerKey(status.hotkeys.hotkeyConfig, key);
     });
   });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-approval-action]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const action = button.dataset.approvalAction as 'approve' | 'revoke' | undefined;
+      const toolId = button.dataset.toolId as LocalToolId | undefined;
+      const capabilityId = button.dataset.capabilityId;
+      if (!action || !toolId || !capabilityId) return;
+      void changeApproval(action, toolId, capabilityId);
+    });
+  });
 }
 
 function renderError(error: unknown): void {
@@ -384,6 +417,31 @@ async function load(): Promise<void> {
     renderError(error);
   } finally {
     setTimeout(() => dot?.classList.remove('active'), 400);
+  }
+}
+
+async function changeApproval(
+  action: 'approve' | 'revoke',
+  toolId: LocalToolId,
+  capabilityId: string,
+): Promise<void> {
+  notice = null;
+  const scope: LocalToolApprovalScope = 'always';
+  try {
+    if (action === 'approve') {
+      await window.api.localTools.setApproval(toolId, capabilityId, scope);
+      notice = { tone: 'ok', message: `Approved ${capabilityId} for ${toolId}.` };
+    } else {
+      await window.api.localTools.revokeApproval(toolId, capabilityId);
+      notice = { tone: 'ok', message: `Revoked ${capabilityId} for ${toolId}.` };
+    }
+    await load();
+  } catch (error) {
+    notice = {
+      tone: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    };
+    await load();
   }
 }
 

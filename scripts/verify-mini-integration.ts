@@ -81,6 +81,8 @@ section('Static source checks');
   'src/main/services/push-to-talk/voice-mode-manager.ts',
   'src/main/services/agent/dictation-refinement.service.ts',
   'src/main/services/local-tools/local-tools.service.ts',
+  'src/main/services/local-tools/approval-store.ts',
+  'src/main/services/local-tools/executor.ts',
   'src/main/services/text-input/text-input.service.ts',
   'src/main/ipc/asr.handler.ts',
   'src/main/ipc/local-tools.handler.ts',
@@ -141,6 +143,9 @@ section('IPC string checks');
   'mini:test-asr-mock',
   'mini:test-text-insert-mock',
   'local-tools:get-snapshot',
+  'local-tools:set-approval',
+  'local-tools:revoke-approval',
+  'local-tools:execute',
 ].forEach((needle) => contains('src/shared/constants/channels.ts', needle, needle));
 
 section('Build config checks');

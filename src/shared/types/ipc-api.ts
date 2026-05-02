@@ -27,7 +27,13 @@ import type {
   OpenClawStatus,
 } from './clawdesk-settings';
 import type { MiniStatus } from './mini';
-import type { LocalToolsSnapshot } from './local-tools';
+import type {
+  LocalToolApprovalScope,
+  LocalToolExecutionRequest,
+  LocalToolExecutionResult,
+  LocalToolId,
+  LocalToolsSnapshot,
+} from './local-tools';
 
 export interface ASRApi {
   start: (config?: Partial<ASRConfig>) => Promise<{ success: boolean }>;
@@ -116,6 +122,16 @@ export interface MiniApi {
 
 export interface LocalToolsApi {
   getSnapshot: () => Promise<LocalToolsSnapshot>;
+  setApproval: (
+    toolId: LocalToolId,
+    capabilityId: string,
+    scope: LocalToolApprovalScope,
+  ) => Promise<LocalToolsSnapshot>;
+  revokeApproval: (
+    toolId: LocalToolId,
+    capabilityId: string,
+  ) => Promise<LocalToolsSnapshot>;
+  execute: (request: LocalToolExecutionRequest) => Promise<LocalToolExecutionResult>;
 }
 
 export interface AppApi {

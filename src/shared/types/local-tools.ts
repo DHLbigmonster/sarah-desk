@@ -8,6 +8,14 @@ export type LocalToolAuthState = 'not_required' | 'authenticated' | 'needs_auth'
 
 export type LocalToolRisk = 'read' | 'write' | 'external' | 'sensitive';
 
+export type LocalToolApprovalScope = 'always' | 'session' | 'one_time';
+
+export interface LocalToolApproval {
+  scope: LocalToolApprovalScope;
+  approvedAt: number;
+  lastUsedAt: number | null;
+}
+
 export interface LocalToolCapability {
   id: string;
   label: string;
@@ -16,6 +24,7 @@ export interface LocalToolCapability {
   enabled: boolean;
   requiresConsent: boolean;
   commandHint: string | null;
+  approval: LocalToolApproval | null;
 }
 
 export interface LocalToolStatus {
@@ -42,4 +51,18 @@ export interface LocalToolsSnapshot {
   needsSetup: number;
   missing: number;
   tools: LocalToolStatus[];
+}
+
+export interface LocalToolExecutionRequest {
+  toolId: LocalToolId;
+  capabilityId: string;
+  args?: Record<string, string | number | boolean>;
+}
+
+export interface LocalToolExecutionResult {
+  success: boolean;
+  output?: string;
+  error?: string;
+  requiresApproval?: boolean;
+  notImplemented?: boolean;
 }

@@ -527,6 +527,9 @@ h1 {
 }
 
 .tool-chip {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(92, 179, 255, 0.14);
@@ -540,16 +543,60 @@ h1 {
   white-space: nowrap;
 }
 
+.tool-chip .chip-state {
+  color: rgba(244, 245, 240, 0.45);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .tool-chip.consent {
   border-color: rgba(255, 200, 87, 0.16);
   color: rgba(255, 221, 155, 0.86);
   background: rgba(255, 200, 87, 0.07);
 }
 
+.tool-chip.consent.approved {
+  border-color: rgba(120, 220, 160, 0.22);
+  color: rgba(190, 240, 210, 0.92);
+  background: rgba(120, 220, 160, 0.08);
+}
+
 .tool-chip.muted {
   border-color: rgba(255, 255, 255, 0.06);
   color: rgba(244, 245, 240, 0.36);
   background: rgba(255, 255, 255, 0.035);
+}
+
+.tool-chip .chip-action {
+  margin-left: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 5px;
+  padding: 1px 5px;
+  color: rgba(244, 245, 240, 0.86);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 8px;
+  font-weight: 720;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.tool-chip .chip-action:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.tool-chip .chip-action.approve {
+  border-color: rgba(120, 220, 160, 0.36);
+  color: rgba(190, 240, 210, 0.94);
+  background: rgba(120, 220, 160, 0.12);
+}
+
+.tool-chip .chip-action.revoke {
+  border-color: rgba(255, 130, 130, 0.32);
+  color: rgba(255, 190, 190, 0.94);
+  background: rgba(255, 130, 130, 0.08);
 }
 
 .tool-path {

@@ -6,10 +6,16 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import log from 'electron-log';
 import type {
+  LocalToolApprovalScope,
   LocalToolCapability,
+  LocalToolExecutionRequest,
+  LocalToolExecutionResult,
+  LocalToolId,
   LocalToolsSnapshot,
   LocalToolStatus,
 } from '../../../shared/types/local-tools';
+import { approvalStore } from './approval-store';
+import { executeCapability } from './executor';
 
 const execFileAsync = promisify(execFile);
 const logger = log.scope('local-tools');
@@ -131,6 +137,7 @@ function safeCapability(
     enabled,
     requiresConsent: false,
     commandHint,
+    approval: null,
   };
 }
 
@@ -149,6 +156,7 @@ function writeCapability(
     enabled,
     requiresConsent: true,
     commandHint,
+    approval: null,
   };
 }
 
@@ -167,6 +175,7 @@ function externalCapability(
     enabled,
     requiresConsent: true,
     commandHint,
+    approval: null,
   };
 }
 
@@ -368,8 +377,22 @@ async function detectLarkCli(): Promise<LocalToolStatus> {
   };
 }
 
+function hydrateApprovals(tools: LocalToolStatus[]): LocalToolStatus[] {
+  return tools.map((tool) => ({
+    ...tool,
+    capabilities: tool.capabilities.map((capability) => ({
+      ...capability,
+      approval: approvalStore.get(tool.id, capability.id),
+    })),
+  }));
+}
+
 export class LocalToolsService {
   private cache: { snapshot: LocalToolsSnapshot; expiresAt: number } | null = null;
+
+  private invalidateCache(): void {
+    this.cache = null;
+  }
 
   async getSnapshot(): Promise<LocalToolsSnapshot> {
     if (this.cache && this.cache.expiresAt > Date.now()) {
@@ -407,15 +430,67 @@ export class LocalToolsService {
       } satisfies LocalToolStatus;
     });
 
+    const hydrated = hydrateApprovals(tools);
     const snapshot = {
       checkedAt: checkedNow(),
-      ready: tools.filter((tool) => tool.health === 'ready').length,
-      needsSetup: tools.filter((tool) => tool.health === 'needs_setup').length,
-      missing: tools.filter((tool) => tool.health === 'missing').length,
-      tools,
+      ready: hydrated.filter((tool) => tool.health === 'ready').length,
+      needsSetup: hydrated.filter((tool) => tool.health === 'needs_setup').length,
+      missing: hydrated.filter((tool) => tool.health === 'missing').length,
+      tools: hydrated,
     };
     this.cache = { snapshot, expiresAt: Date.now() + 15_000 };
     return snapshot;
+  }
+
+  async setApproval(
+    toolId: LocalToolId,
+    capabilityId: string,
+    scope: LocalToolApprovalScope,
+  ): Promise<LocalToolsSnapshot> {
+    approvalStore.set(toolId, capabilityId, scope);
+    this.invalidateCache();
+    return this.getSnapshot();
+  }
+
+  async revokeApproval(
+    toolId: LocalToolId,
+    capabilityId: string,
+  ): Promise<LocalToolsSnapshot> {
+    approvalStore.revoke(toolId, capabilityId);
+    this.invalidateCache();
+    return this.getSnapshot();
+  }
+
+  async execute(request: LocalToolExecutionRequest): Promise<LocalToolExecutionResult> {
+    const snapshot = await this.getSnapshot();
+    const tool = snapshot.tools.find((entry) => entry.id === request.toolId);
+    if (!tool) {
+      return { success: false, error: `Unknown tool ${request.toolId}.` };
+    }
+    const capability = tool.capabilities.find((entry) => entry.id === request.capabilityId);
+    if (!capability) {
+      return { success: false, error: `Unknown capability ${request.capabilityId}.` };
+    }
+    if (!capability.enabled) {
+      return {
+        success: false,
+        error: `${tool.name} is not ready: ${tool.detail}`,
+      };
+    }
+    if (capability.requiresConsent && !approvalStore.isApproved(request.toolId, request.capabilityId)) {
+      return {
+        success: false,
+        requiresApproval: true,
+        error: `${capability.label} requires approval before it can run.`,
+      };
+    }
+
+    const result = await executeCapability(request.toolId, request.capabilityId, request.args ?? {});
+    if (result.success && capability.requiresConsent) {
+      approvalStore.consume(request.toolId, request.capabilityId);
+      this.invalidateCache();
+    }
+    return result;
   }
 
   async getAgentContextSummary(): Promise<string> {
@@ -424,7 +499,10 @@ export class LocalToolsService {
       .map((tool) => {
         const capabilities = tool.capabilities
           .filter((capability) => capability.enabled)
-          .map((capability) => `${capability.label}${capability.requiresConsent ? ' (needs approval)' : ''}`)
+          .map((capability) => {
+            const approved = capability.approval ? ' (approved)' : capability.requiresConsent ? ' (needs approval)' : '';
+            return `${capability.label}${approved}`;
+          })
           .join(', ') || 'no enabled actions';
         return `- ${tool.name}: ${tool.health}; ${tool.detail}; capabilities: ${capabilities}`;
       })

@@ -29,7 +29,13 @@ import type {
   OpenClawStatus,
 } from './shared/types/clawdesk-settings';
 import type { MiniStatus } from './shared/types/mini';
-import type { LocalToolsSnapshot } from './shared/types/local-tools';
+import type {
+  LocalToolApprovalScope,
+  LocalToolExecutionRequest,
+  LocalToolExecutionResult,
+  LocalToolId,
+  LocalToolsSnapshot,
+} from './shared/types/local-tools';
 import type {
   ASRApi,
   FloatingWindowApi,
@@ -339,6 +345,19 @@ const clawDeskApi: ClawDeskApi = {
 const localToolsApi: LocalToolsApi = {
   getSnapshot: (): Promise<LocalToolsSnapshot> =>
     ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.GET_SNAPSHOT),
+  setApproval: (
+    toolId: LocalToolId,
+    capabilityId: string,
+    scope: LocalToolApprovalScope,
+  ): Promise<LocalToolsSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.SET_APPROVAL, { toolId, capabilityId, scope }),
+  revokeApproval: (
+    toolId: LocalToolId,
+    capabilityId: string,
+  ): Promise<LocalToolsSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.REVOKE_APPROVAL, { toolId, capabilityId }),
+  execute: (request: LocalToolExecutionRequest): Promise<LocalToolExecutionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.EXECUTE, request),
 };
 
 const miniApi: MiniApi = {
