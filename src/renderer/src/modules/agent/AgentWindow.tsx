@@ -75,10 +75,12 @@ export function AgentWindow(): ReactNode {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const streamingIdRef = useRef<string | null>(null);
   const firstChunkNotifiedRef = useRef(false);
   const answerBodyRef = useRef<HTMLDivElement | null>(null);
+  const userScrolledRef = useRef(false);
 
   const syncVisibleAnswer = useCallback((assistantMessage: AgentMessage | null) => {
     return assistantMessage?.content ?? '';
@@ -264,15 +266,40 @@ export function AgentWindow(): ReactNode {
     };
   }, []);
 
+  // Auto-scroll during streaming, unless user has manually scrolled up
   useEffect(() => {
     if (!isStreaming) return;
     const body = answerBodyRef.current;
     if (!body) return;
-    body.scrollTop = body.scrollHeight;
+    if (!userScrolledRef.current) {
+      body.scrollTop = body.scrollHeight;
+    }
   }, [visibleAnswer, isStreaming]);
 
+  // Track whether user has scrolled up manually
+  useEffect(() => {
+    const body = answerBodyRef.current;
+    if (!body) return;
+    const handleScroll = (): void => {
+      if (!isStreaming) return;
+      const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+      userScrolledRef.current = !atBottom;
+      setShowScrollBtn(!atBottom && isStreaming);
+    };
+    body.addEventListener('scroll', handleScroll, { passive: true });
+    return () => body.removeEventListener('scroll', handleScroll);
+  }, [isStreaming]);
+
+  // Reset scroll tracking when a new streaming starts
+  useEffect(() => {
+    if (isStreaming) {
+      userScrolledRef.current = false;
+      setShowScrollBtn(false);
+    }
+  }, [isStreaming]);
+
   const statusState = isStreaming ? 'thinking' : 'done';
-  const statusLabel = isStreaming ? 'Thinking' : 'Ready';
+  const statusLabel = isStreaming ? '思考中' : '就绪';
 
   return (
     <div className="agent-window">
@@ -285,7 +312,7 @@ export function AgentWindow(): ReactNode {
           className="agent-window__close"
           onClick={handleHide}
           title="关闭 (Esc)"
-          aria-label="关闭回答浮层"
+          aria-label="关闭"
         >
           ×
         </button>
@@ -314,7 +341,7 @@ export function AgentWindow(): ReactNode {
           </div>
         </div>
 
-        <div className="agent-window__answer-body" ref={answerBodyRef}>
+        <div className="agent-window__answer-body" ref={answerBodyRef} aria-live="polite" aria-atomic="false">
           {showThinking ? (
             <ThinkingState />
           ) : (
@@ -341,17 +368,32 @@ export function AgentWindow(): ReactNode {
               {showCursor && <span className="agent-window__cursor" aria-hidden="true" />}
             </div>
           )}
+          {showScrollBtn && (
+            <button
+              className="agent-window__scroll-bottom"
+              onClick={() => {
+                const body = answerBodyRef.current;
+                if (body) body.scrollTop = body.scrollHeight;
+                userScrolledRef.current = false;
+                setShowScrollBtn(false);
+              }}
+              type="button"
+              aria-label="回到底部"
+            >
+              ↓ 最新
+            </button>
+          )}
         </div>
       </div>
 
       <div className="agent-window__actionbar">
         {isStreaming ? (
           <button className="agent-window__action-btn agent-window__action-btn--danger" onClick={handleAbort}>
-            Stop
+            停止
           </button>
         ) : (
           <button className="agent-window__action-btn" onClick={handleRetry} disabled={!latestUser || !context}>
-            Retry
+            重试
           </button>
         )}
         <button
@@ -360,10 +402,10 @@ export function AgentWindow(): ReactNode {
           disabled={!visibleAnswer}
           data-copied={copied}
         >
-          {copied ? 'Copied' : 'Copy'}
+          {copied ? '已复制' : '复制'}
         </button>
         <button className="agent-window__action-btn agent-window__action-btn--primary" onClick={handleHide}>
-          Done
+          完成
         </button>
       </div>
     </div>
