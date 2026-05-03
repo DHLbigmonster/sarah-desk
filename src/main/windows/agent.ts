@@ -25,8 +25,8 @@ import { getIsAppQuitting } from '../app-lifecycle';
 const logger = log.scope('agent-window');
 
 const AGENT_WINDOW_CONFIG = {
-  WIDTH: 560,
-  HEIGHT: 400,
+  WIDTH: 760,
+  HEIGHT: 520,
 } as const;
 
 /**

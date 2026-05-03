@@ -485,3 +485,34 @@ Known limitations / next steps:
 
 - Full `pnpm -s typecheck` has historically hung in this local environment; keep using targeted esbuild checks plus `verify:mini` unless the typecheck hang is separately diagnosed.
 - Avoid any future installed-app hot-patching of `app.asar`; Electron has embedded asar integrity enabled, so app.asar changes after signing will crash at launch.
+
+## 2026-05-03 Answer Overlay Premium Redesign and Follow-up UX
+
+User showed a screenshot of the answer overlay and said the panel felt too narrow, the text looked odd, and the interaction for follow-up questions was unclear. User asked to use online design references and image generation to make the UI feel more premium.
+
+- Design direction:
+  - Used Apple popover guidance, ChatGPT macOS launcher/desktop references, and Raycast keyboard-first utility references to keep the overlay temporary, clear, and action-oriented.
+  - Generated a visual reference mockup at `/Users/chaosmac/.codex/generated_images/019de2eb-a507-7ff3-a21a-41583b72e482/ig_0d3a9c84893530a70169f722c756e08191ae213f14355f47b3.png`.
+  - Chose a refined macOS utility surface: wider liquid-glass dark panel, subtle pixel grid, warm amber accent, restrained hierarchy, and larger readable Chinese answer text.
+- UI changes:
+  - `AgentWindowManager` answer overlay size increased from 560x400 to 760x520.
+  - Reworked `agent-window.css` around a 720px content surface, better typography, lighter prompt treatment, improved markdown/code styling, stronger contrast, and reduced card-within-card feel.
+  - Changed visible labels from generic English (`Answer`, `Prompt`) to product-specific Chinese (`Sarah 回答`, `你刚才说`).
+- Follow-up interaction:
+  - Added a first-class `继续追问` action in the overlay.
+  - Clicking it opens a compact follow-up composer inside the answer overlay.
+  - Users can type and press Enter to send, or click the mic button to dictate a follow-up using the existing ASR path.
+  - The hint clarifies that this is the right path for continuing the current answer; Right Ctrl + Shift is positioned as starting a new Command from the frontmost app, not as the primary follow-up mechanism.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- Targeted esbuild checks passed for `src/renderer/src/modules/agent/AgentWindow.tsx` and `src/main/windows/agent.ts`.
+- `git diff --check` passed.
+- `pnpm -s typecheck` passed.
+- `pnpm run install:app` completed successfully and relaunched the installed Sarah app.
+
+Known limitations / next steps:
+
+- Follow-up voice input currently uses the existing ASR path and appends the final transcript into the composer; it does not yet run the dictation refinement prompt before insertion into the composer.
+- Manual visual validation still needs the user to trigger an actual Command/Quick Ask and inspect the installed overlay in context.

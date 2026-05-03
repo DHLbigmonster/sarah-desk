@@ -76,11 +76,15 @@ export function AgentWindow(): ReactNode {
   const [isStreaming, setIsStreaming] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [followUpText, setFollowUpText] = useState('');
+  const [isRecordingFollowUp, setIsRecordingFollowUp] = useState(false);
 
   const streamingIdRef = useRef<string | null>(null);
   const firstChunkNotifiedRef = useRef(false);
   const answerBodyRef = useRef<HTMLDivElement | null>(null);
   const userScrolledRef = useRef(false);
+  const followUpInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const syncVisibleAnswer = useCallback((assistantMessage: AgentMessage | null) => {
     return assistantMessage?.content ?? '';
@@ -122,6 +126,56 @@ export function AgentWindow(): ReactNode {
     firstChunkNotifiedRef.current = false;
   }, [messages, context]);
 
+  const submitFollowUp = useCallback(() => {
+    const instruction = followUpText.trim();
+    if (!instruction || !context || isStreaming) return;
+
+    const userMsg: AgentMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: instruction,
+      timestamp: Date.now(),
+    };
+    const assistantMsg: AgentMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      isStreaming: true,
+    };
+
+    void window.api.agent.sendInstruction(instruction, context);
+    setMessages((prev) => [...prev, userMsg, assistantMsg]);
+    setIsStreaming(true);
+    setCopied(false);
+    setFollowUpText('');
+    setFollowUpOpen(false);
+    streamingIdRef.current = assistantMsg.id;
+    firstChunkNotifiedRef.current = false;
+  }, [context, followUpText, isStreaming]);
+
+  const openFollowUp = useCallback(() => {
+    setFollowUpOpen(true);
+    requestAnimationFrame(() => followUpInputRef.current?.focus());
+  }, []);
+
+  const toggleFollowUpRecording = useCallback(async () => {
+    if (isStreaming) return;
+    if (isRecordingFollowUp) {
+      await window.api.asr.stop();
+      setIsRecordingFollowUp(false);
+      return;
+    }
+
+    try {
+      setFollowUpOpen(true);
+      await window.api.asr.start();
+      setIsRecordingFollowUp(true);
+    } catch {
+      setIsRecordingFollowUp(false);
+    }
+  }, [isRecordingFollowUp, isStreaming]);
+
   const latestUser = findLatestMessage(messages, 'user');
   const latestAssistant = findLatestMessage(messages, 'assistant');
   const visibleAnswer = syncVisibleAnswer(latestAssistant);
@@ -154,6 +208,9 @@ export function AgentWindow(): ReactNode {
       setContext(payload.context);
       setIsStreaming(false);
       setCopied(false);
+      setFollowUpOpen(false);
+      setFollowUpText('');
+      setIsRecordingFollowUp(false);
       if (streamingIdRef.current) {
         streamingIdRef.current = null;
       }
@@ -225,6 +282,9 @@ export function AgentWindow(): ReactNode {
       setContext(payload.context);
       setIsStreaming(true);
       setCopied(false);
+      setFollowUpOpen(false);
+      setFollowUpText('');
+      setIsRecordingFollowUp(false);
       streamingIdRef.current = assistantMessage.id;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -251,6 +311,9 @@ export function AgentWindow(): ReactNode {
       setContext(payload.context);
       setIsStreaming(false);
       setCopied(false);
+      setFollowUpOpen(false);
+      setFollowUpText('');
+      setIsRecordingFollowUp(false);
       streamingIdRef.current = null;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -265,6 +328,22 @@ export function AgentWindow(): ReactNode {
       unsubShowResult();
     };
   }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.api.asr.onResult((result) => {
+      if (!isRecordingFollowUp || !result.isFinal || !result.text.trim()) return;
+      setFollowUpText((prev) => {
+        const separator = prev.trim() ? ' ' : '';
+        return `${prev}${separator}${result.text.trim()}`;
+      });
+      void window.api.asr.stop();
+      setIsRecordingFollowUp(false);
+      setFollowUpOpen(true);
+      requestAnimationFrame(() => followUpInputRef.current?.focus());
+    });
+
+    return unsubscribe;
+  }, [isRecordingFollowUp]);
 
   // Auto-scroll during streaming, unless user has manually scrolled up
   useEffect(() => {
@@ -306,7 +385,7 @@ export function AgentWindow(): ReactNode {
       <div className="agent-window__header">
         <div className="agent-window__mode">
           <span className="agent-window__mode-mark" />
-          <span>{latestUser ? 'Answer' : 'Sarah'}</span>
+          <span>{latestUser ? 'Sarah 回答' : 'Sarah'}</span>
         </div>
         <button
           className="agent-window__close"
@@ -324,7 +403,7 @@ export function AgentWindow(): ReactNode {
 
       {latestUser?.content && (
         <div className="agent-window__question-shell">
-          <div className="agent-window__question-label">Prompt</div>
+          <div className="agent-window__question-label">你刚才说</div>
           <div className="agent-window__question">
             {latestUser.content}
           </div>
@@ -392,8 +471,8 @@ export function AgentWindow(): ReactNode {
             停止
           </button>
         ) : (
-          <button className="agent-window__action-btn" onClick={handleRetry} disabled={!latestUser || !context}>
-            重试
+          <button className="agent-window__action-btn agent-window__action-btn--primary" onClick={openFollowUp} disabled={!context}>
+            继续追问
           </button>
         )}
         <button
@@ -404,10 +483,80 @@ export function AgentWindow(): ReactNode {
         >
           {copied ? '已复制' : '复制'}
         </button>
-        <button className="agent-window__action-btn agent-window__action-btn--primary" onClick={handleHide}>
+        <button className="agent-window__action-btn" onClick={handleRetry} disabled={!latestUser || !context || isStreaming}>
+          重试
+        </button>
+        <button className="agent-window__action-btn" onClick={handleHide}>
           完成
         </button>
       </div>
+
+      {followUpOpen && (
+        <div className="agent-window__followup" role="form" aria-label="继续追问">
+          <div className="agent-window__followup-topline">
+            <span>继续追问</span>
+            <span>Enter 发送 · Esc 关闭输入框</span>
+          </div>
+          <div className="agent-window__followup-row">
+            <textarea
+              ref={followUpInputRef}
+              className="agent-window__followup-input"
+              value={followUpText}
+              onChange={(event) => setFollowUpText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                  event.preventDefault();
+                  submitFollowUp();
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setFollowUpOpen(false);
+                }
+              }}
+              placeholder="直接补充一句，比如：新建文档，标题用今天的日期。"
+              rows={2}
+              disabled={isStreaming}
+            />
+            <button
+              className="agent-window__followup-mic"
+              onClick={toggleFollowUpRecording}
+              type="button"
+              disabled={isStreaming}
+              data-recording={isRecordingFollowUp}
+              aria-label={isRecordingFollowUp ? '停止语音追问' : '语音追问'}
+              title={isRecordingFollowUp ? '停止语音追问' : '语音追问'}
+            >
+              {isRecordingFollowUp ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <rect x="7" y="7" width="10" height="10" rx="2" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" x2="12" y1="19" y2="22" />
+                </svg>
+              )}
+            </button>
+            <button
+              className="agent-window__followup-send"
+              onClick={submitFollowUp}
+              type="button"
+              disabled={!followUpText.trim() || isStreaming}
+              aria-label="发送追问"
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M12 19V5" />
+                <path d="m5 12 7-7 7 7" />
+              </svg>
+            </button>
+          </div>
+          <div className="agent-window__followup-hint">
+            这是当前答案的追问。右 Ctrl + Shift 更适合从前台 App 发起新的 Command。
+          </div>
+        </div>
+      )}
     </div>
   );
 }
