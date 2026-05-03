@@ -37,7 +37,8 @@ mkdir -p "$TARGET_DIR"
 rm -rf "$TARGET_APP_PATH"
 # rsync without -E does NOT preserve xattrs (ditto preserves com.apple.provenance
 # which blocks codesign). rsync is the only reliable way to get a clean copy.
-rsync -a "$PACKAGED_APP_PATH" "$TARGET_APP_PATH"
+mkdir -p "$TARGET_APP_PATH"
+rsync -a "$PACKAGED_APP_PATH/" "$TARGET_APP_PATH/"
 
 # Sign with a stable identity so TCC remembers the grant across reinstalls.
 # Signing happens here (after ditto) rather than in forge.config.ts so that

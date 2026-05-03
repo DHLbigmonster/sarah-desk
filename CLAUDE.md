@@ -457,3 +457,31 @@ Known limitations / next steps:
 - Obsidian detection currently confirms app/CLI presence and assumes URI scheme availability when Obsidian is installed. Vault-level write configuration still needs a real onboarding step.
 - Feishu/Lark CLI auth detection is best-effort across common command shapes. Add a specific supported CLI contract before exposing write/send actions.
 - The old `clawdesk` internal names remain in legacy IPC/settings modules. User-facing product shape is Sarah-first, but a later cleanup should rename internals once release behavior is stable.
+
+## 2026-05-03 Packaging Recovery and Installed App Verification
+
+User asked to continue the prior UI/product optimization work after packaging had stalled.
+
+- Packaging diagnosis:
+  - `electron-forge package` was hanging before build output because importing `forge.config.ts` blocked on `@electron-forge/maker-zip`.
+  - The root local cause was a corrupted `node_modules` tree containing 6746 macOS conflict-copy files/directories with ` 2` suffixes, including duplicated `got` and `@electron-forge/maker-zip` package contents.
+  - After deleting `node_modules` and running `pnpm install`, conflict-copy count dropped to 0 and direct imports of `got`, `@electron-forge/maker-zip`, and `forge.config.ts` completed in under 200ms.
+- Install script fix:
+  - `scripts/install-packaged-app.sh` previously copied the packaged bundle with `rsync -a "$PACKAGED_APP_PATH" "$TARGET_APP_PATH"`, which created a nested `~/Applications/Sarah.app/Sarah.app` bundle.
+  - Changed the copy step to create the target bundle directory and sync `"$PACKAGED_APP_PATH/"` into `"$TARGET_APP_PATH/"`, so signing operates on `~/Applications/Sarah.app/Contents/...` as intended.
+- Installed app verification:
+  - `pnpm run install:app` now completes: package, copy, sign, preserve TCC grants, remove build output, and open the installed app.
+  - Installed Sarah is running from `/Users/chaosmac/Applications/Sarah.app/Contents/MacOS/Sarah`.
+  - `codesign --verify --deep --strict --verbose=2 ~/Applications/Sarah.app` passes.
+  - `~/Applications/Sarah.app/Contents/Resources/.env` is present in the packaged app.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `pnpm exec electron-forge --version` returned 7.11.1.
+- `pnpm run install:app` completed successfully.
+
+Known limitations / next steps:
+
+- Full `pnpm -s typecheck` has historically hung in this local environment; keep using targeted esbuild checks plus `verify:mini` unless the typecheck hang is separately diagnosed.
+- Avoid any future installed-app hot-patching of `app.asar`; Electron has embedded asar integrity enabled, so app.asar changes after signing will crash at launch.
