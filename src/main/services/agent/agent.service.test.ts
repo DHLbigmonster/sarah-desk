@@ -15,7 +15,22 @@ vi.mock('electron-log', () => ({
 }));
 
 vi.mock('node:child_process', () => ({
-  spawn: vi.fn(),
+  spawn: vi.fn(() => {
+    const proc = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter;
+      stderr: EventEmitter;
+      kill: () => void;
+      unref: () => void;
+    };
+    proc.stdout = new EventEmitter();
+    proc.stderr = new EventEmitter();
+    proc.kill = vi.fn();
+    proc.unref = vi.fn();
+    return proc;
+  }),
+  execFile: vi.fn((_cmd: string, _args: string[], cb: (err: Error | null, out: { stdout: string; stderr: string }) => void) => {
+    cb(new Error('not found'), { stdout: '', stderr: '' });
+  }),
   execFileSync: vi.fn().mockImplementation((cmd: string) => {
     if (cmd === 'which') throw new Error('not found');
     return '';
@@ -33,6 +48,7 @@ vi.mock('./memory.service', () => ({
   memoryService: {
     load: vi.fn().mockReturnValue({ preferences: {}, recent_actions: [] }),
     appendAction: vi.fn(),
+    appendTurn: vi.fn(),
   },
 }));
 
@@ -43,6 +59,7 @@ interface MockProcess extends EventEmitter {
   stdout: EventEmitter;
   stderr: EventEmitter;
   kill: ReturnType<typeof vi.fn>;
+  unref: ReturnType<typeof vi.fn>;
 }
 
 function createMockProcess(exitCode: number | null, stdout: string, stderr: string): MockProcess {
@@ -50,6 +67,7 @@ function createMockProcess(exitCode: number | null, stdout: string, stderr: stri
   proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
   proc.kill = vi.fn();
+  (proc as unknown as { unref: () => void }).unref = vi.fn();
 
   // Simulate async output
   setTimeout(() => {
@@ -89,6 +107,7 @@ describe('AgentService', () => {
       proc.stdout = new EventEmitter();
       proc.stderr = new EventEmitter();
       proc.kill = vi.fn();
+      proc.unref = vi.fn();
       setTimeout(() => proc.emit('error', err), 5);
       return proc;
     });
@@ -158,6 +177,7 @@ describe('AgentService', () => {
     firstProc.stdout = new EventEmitter();
     firstProc.stderr = new EventEmitter();
     firstProc.kill = vi.fn();
+    firstProc.unref = vi.fn();
 
     (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
       setTimeout(() => {
@@ -196,6 +216,7 @@ describe('AgentService', () => {
     proc.stdout = new EventEmitter();
     proc.stderr = new EventEmitter();
     proc.kill = vi.fn();
+    proc.unref = vi.fn();
 
     (spawn as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => {
       // Never emit close — simulates a hung process

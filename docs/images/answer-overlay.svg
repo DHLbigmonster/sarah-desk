@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 540" width="760" height="540" font-family="-apple-system, 'SF Pro Text', system-ui, sans-serif">
+  <defs>
+    <linearGradient id="aoGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#26272a" stop-opacity="0.94"/>
+      <stop offset="1" stop-color="#0f1012" stop-opacity="0.97"/>
+    </linearGradient>
+    <radialGradient id="aoAmber" cx="0.12" cy="0" r="0.45">
+      <stop offset="0" stop-color="#d7bc84" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#d7bc84" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="aoBlue" cx="0.88" cy="0.09" r="0.4">
+      <stop offset="0" stop-color="#7193c4" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#7193c4" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="aoGrid" width="16" height="16" patternUnits="userSpaceOnUse">
+      <path d="M16 0H0V16" fill="none" stroke="#f5eede" stroke-width="0.5" stroke-opacity="0.04"/>
+    </pattern>
+  </defs>
+
+  <!-- Outer dark wallpaper -->
+  <rect width="760" height="540" fill="#08090b"/>
+
+  <!-- Overlay -->
+  <g transform="translate(20, 16)">
+    <rect width="720" height="508" rx="20" fill="url(#aoGrad)" stroke="#f4e8cb" stroke-opacity="0.13" stroke-width="1"/>
+    <rect x="1" y="1" width="718" height="506" rx="19" fill="url(#aoAmber)"/>
+    <rect x="1" y="1" width="718" height="506" rx="19" fill="url(#aoBlue)"/>
+    <rect x="1" y="1" width="718" height="506" rx="19" fill="url(#aoGrid)" opacity="0.7"/>
+
+    <!-- Header -->
+    <g transform="translate(22, 22)">
+      <circle cx="8" cy="14" r="5" fill="#d7bc84"/>
+      <circle cx="8" cy="14" r="8" fill="none" stroke="#d7bc84" stroke-opacity="0.32"/>
+      <text x="24" y="11" font-size="10" letter-spacing="2" fill="#d7bc84" font-weight="700">SARAH 回答</text>
+      <text x="24" y="26" font-size="13" fill="#fafaf6" font-weight="600">Quick Ask · streaming</text>
+      <text x="676" y="20" font-size="11" fill="#7d8480" text-anchor="end">2.3s · 142 tokens</text>
+    </g>
+
+    <!-- Prompt panel -->
+    <g transform="translate(22, 70)">
+      <rect width="676" height="64" rx="11" fill="#0d0e10" stroke="#f4e8cb" stroke-opacity="0.06"/>
+      <text x="14" y="20" font-size="9" letter-spacing="1.8" fill="#8a6b3c" font-weight="700">你刚才说</text>
+      <text x="14" y="42" font-size="13" fill="#cdc7b9">用中文一句话解释什么是 Electron 进程模型</text>
+      <text x="14" y="56" font-size="11" fill="#7d7361">prompt · 18 chars</text>
+    </g>
+
+    <!-- Answer body -->
+    <g transform="translate(22, 152)">
+      <text x="0" y="14" font-size="14" fill="#faf8f1" font-weight="500">Electron 应用包含一个主进程 (main) 和一个或多个渲染进程 (renderer)。主进程拥有</text>
+      <text x="0" y="36" font-size="14" fill="#faf8f1" font-weight="500">完整的 Node.js 能力，负责窗口管理、系统资源和 IPC；渲染进程运行 Chromium，</text>
+      <text x="0" y="58" font-size="14" fill="#faf8f1" font-weight="500">承载 UI。两者通过 IPC 消息通讯，preload 脚本桥接安全边界。</text>
+
+      <!-- Code block -->
+      <g transform="translate(0, 80)">
+        <rect width="676" height="124" rx="10" fill="#0a0b0d" stroke="#f4e8cb" stroke-opacity="0.08"/>
+        <text x="14" y="22" font-size="10" letter-spacing="1.4" fill="#7d7361" font-weight="700">TYPESCRIPT</text>
+        <text x="640" y="22" font-size="10" fill="#7d7361" font-family="monospace">⧉ Copy</text>
+        <text x="14" y="48" font-family="ui-monospace, 'SF Mono', monospace" font-size="12" fill="#d7bc84">// preload.ts — bridge safe APIs to the renderer</text>
+        <text x="14" y="68" font-family="ui-monospace, 'SF Mono', monospace" font-size="12" fill="#9ec5f0">contextBridge<tspan fill="#cdc7b9">.</tspan>exposeInMainWorld<tspan fill="#cdc7b9">(</tspan><tspan fill="#5ee2b7">'api'</tspan><tspan fill="#cdc7b9">, {</tspan></text>
+        <text x="14" y="88" font-family="ui-monospace, 'SF Mono', monospace" font-size="12" fill="#cdc7b9">  speak: <tspan fill="#9ec5f0">(</tspan>text: <tspan fill="#5ee2b7">string</tspan><tspan fill="#9ec5f0">) =&gt;</tspan> ipcRenderer<tspan fill="#9ec5f0">.</tspan>invoke<tspan fill="#9ec5f0">(</tspan><tspan fill="#5ee2b7">'speak'</tspan>, text<tspan fill="#9ec5f0">)</tspan>,</text>
+        <text x="14" y="108" font-family="ui-monospace, 'SF Mono', monospace" font-size="12" fill="#cdc7b9">{<tspan fill="#9ec5f0">)</tspan>;</text>
+      </g>
+
+      <!-- Caret -->
+      <rect x="0" y="216" width="2" height="14" fill="#d7bc84"/>
+    </g>
+
+    <!-- Footer action bar -->
+    <line x1="22" y1="448" x2="698" y2="448" stroke="#f4e8cb" stroke-opacity="0.1"/>
+    <g transform="translate(22, 462)">
+      <rect width="84" height="32" rx="9" fill="#1f201f" stroke="#d7bc84" stroke-opacity="0.45"/>
+      <text x="42" y="20" font-size="12" fill="#d7bc84" text-anchor="middle" font-weight="600">Stop</text>
+    </g>
+    <g transform="translate(116, 462)">
+      <rect width="92" height="32" rx="9" fill="#1a1d20" stroke="#fff" stroke-opacity="0.13"/>
+      <text x="46" y="20" font-size="12" fill="#cdd0cc" text-anchor="middle">Retry</text>
+    </g>
+    <g transform="translate(218, 462)">
+      <rect width="92" height="32" rx="9" fill="#1a1d20" stroke="#fff" stroke-opacity="0.13"/>
+      <text x="46" y="20" font-size="12" fill="#cdd0cc" text-anchor="middle">Copy</text>
+    </g>
+    <g transform="translate(320, 462)">
+      <rect width="116" height="32" rx="9" fill="#1a1d20" stroke="#fff" stroke-opacity="0.13"/>
+      <text x="58" y="20" font-size="12" fill="#cdd0cc" text-anchor="middle">继续追问</text>
+    </g>
+    <text x="694" y="482" font-size="11" fill="#7d8480" text-anchor="end">Esc · 关闭</text>
+  </g>
+</svg>

@@ -14,6 +14,7 @@ const {
     register: vi.fn(),
     unregister: vi.fn(),
     cancelActiveHandler: vi.fn(),
+    setTriggerKeycode: vi.fn(),
   },
   mockAsrService: {
     start: vi.fn().mockResolvedValue(undefined),
