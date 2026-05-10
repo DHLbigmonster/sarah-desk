@@ -16,7 +16,10 @@ import os from 'node:os';
 import log from 'electron-log';
 import { memoryService } from './memory.service';
 import { localToolsService } from '../local-tools';
+import { clawDeskSettingsService } from '../clawdesk/settings.service';
+import { abortOpenClawGatewayRun, runOpenClawGatewayAgent } from './openclaw-gateway-client';
 import type { AgentContext } from '../../../shared/types/agent';
+import type { AgentRuntimeId } from '../../../shared/types/clawdesk-settings';
 import type { AgentMemory } from './memory.service';
 
 const logger = log.scope('agent-service');
@@ -118,6 +121,11 @@ function parseOpenClawResponse(raw: string): { text: string; meta?: Record<strin
   }
 }
 
+function parseHermesResponse(raw: string): { text: string } | null {
+  const text = raw.trim();
+  return text ? { text } : null;
+}
+
 function sanitizeOpenClawError(stderr: string): string {
   return stderr
     .split('\n')
@@ -128,10 +136,39 @@ function sanitizeOpenClawError(stderr: string): string {
     .join('\n');
 }
 
+function sanitizeHermesError(stderr: string): string {
+  return stderr
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-12)
+    .join('\n');
+}
+
 function shouldUseGatewayAgent(): boolean {
   const value = process.env.SARAH_OPENCLAW_GATEWAY_AGENT;
   if (!value) return true;
   return !['0', 'false', 'off', 'no'].includes(value.toLowerCase());
+}
+
+function shouldUseOpenClawWebSocketAgent(): boolean {
+  const value = process.env.SARAH_OPENCLAW_WS_AGENT;
+  if (!value) return true;
+  return !['0', 'false', 'off', 'no'].includes(value.toLowerCase());
+}
+
+function shouldEnableHermesBrowserAutomation(instruction: string): boolean {
+  return /点击|打开|填写|登录|滚动|翻页|操作(一下)?(浏览器|网页|页面|Chrome|Safari)?|控制(浏览器|网页|Chrome|Safari)|browser|chrome|safari|click|fill|login|scroll/i.test(instruction);
+}
+
+function resolveHermesToolsets(instruction: string): string {
+  const configured = process.env.SARAH_HERMES_TOOLSETS?.trim();
+  if (configured) return configured;
+  const fastToolsets = ['web', 'terminal', 'file', 'vision', 'skills', 'todo', 'messaging'];
+  if (shouldEnableHermesBrowserAutomation(instruction)) {
+    fastToolsets.splice(1, 0, 'browser');
+  }
+  return fastToolsets.join(',');
 }
 
 function resolveGatewayPromptMode(): 'full' | 'minimal' | 'none' {
@@ -174,6 +211,45 @@ function buildGatewayAgentParams(params: {
   });
 }
 
+const WEB_CONTEXT_KEYWORDS = ['chrome', 'safari', 'firefox', 'brave', 'edge', 'chromium', 'opera', 'arc'];
+
+function isWebContext(context: AgentContext): boolean {
+  if (context.url) return true;
+  const appName = context.appName.toLowerCase();
+  return WEB_CONTEXT_KEYWORDS.some((keyword) => appName.includes(keyword));
+}
+
+function isSarahSurfaceContext(context: AgentContext): boolean {
+  const appName = context.appName.toLowerCase();
+  return appName.includes('sarah') || appName.includes('open-typeless');
+}
+
+function buildContextAcquisitionPolicy(context: AgentContext): string {
+  const hasUrl = !!context.url;
+  const hasScreenshot = !!context.screenshotPath;
+  const webContext = isWebContext(context);
+  const sarahSurface = isSarahSurfaceContext(context);
+
+  const lines = [
+    '上下文获取策略（必须按顺序执行，不要把截图/打开网页的责任推给用户）：',
+    '1. 如果当前上下文有 URL：优先用 web-access / browser 工具读取该 URL 或当前浏览器页面；如果读取失败，再用截图路径分析可见内容。',
+    '2. 如果当前应用是浏览器但没有 URL：先尝试 web-access 连接当前浏览器/当前标签页；如果失败，再用截图路径分析。',
+    '3. 如果当前是非网页应用：直接使用截图路径分析屏幕可见内容，然后再思考和执行。',
+    '4. 只有在既没有 URL、也没有截图路径、也无法访问浏览器时，才向用户索要内容。',
+    '5. 保存到飞书/Obsidian/文件等写入动作，如果需要授权，只请求“写入授权/目标位置确认”，不要要求用户自己截图或复制页面内容。',
+    '6. 需要网页内容时优先使用页面读取/API/文本抽取；只有必须点击、登录、翻页或操作页面时才使用慢速浏览器自动化。',
+  ];
+
+  if (sarahSurface) {
+    lines.push(
+      '注意：appName 显示为 Sarah 时通常是 Sarah 自己的浮层/状态窗，不应把 Sarah UI 当作用户目标内容；优先使用截图中的非 Sarah 可见内容，或在缺少截图时要求用户重新用 Command 快捷键从目标 App 发起。',
+    );
+  }
+
+  lines.push(`当前判断：${webContext ? '网页/浏览器优先' : '非网页，截图优先'}；URL=${hasUrl ? '有' : '无'}；截图=${hasScreenshot ? context.screenshotPath : '无'}`);
+  return lines.join('\n');
+}
+
 // ─── AgentService ─────────────────────────────────────────────────────────────
 
 export class AgentService extends EventEmitter {
@@ -181,12 +257,14 @@ export class AgentService extends EventEmitter {
   private running = false;
   private runVersion = 0;
   private activeRunId: string | null = null;
+  private activeRuntime: AgentRuntimeId | null = null;
 
   /** Queue for tasks submitted while another is running. */
   private pendingExecution: { instruction: string; context: AgentContext; resolve: () => void } | null = null;
 
   /** Resolved absolute paths (lazy, set on first execute) */
   private openclawBin = 'openclaw';
+  private hermesBin = 'hermes';
   private larkBin: string | null = null;
   private enhancedPath = process.env.PATH ?? '';
   private initialized = false;
@@ -200,6 +278,7 @@ export class AgentService extends EventEmitter {
     this.initialized = true;
 
     this.openclawBin = resolveBinary('openclaw');
+    this.hermesBin = resolveBinary('hermes');
     this.enhancedPath = buildEnhancedPath(this.openclawBin);
 
     const lark = resolveBinary('lark');
@@ -207,8 +286,14 @@ export class AgentService extends EventEmitter {
 
     logger.info('AgentService initialized', {
       openclawBin: this.openclawBin,
+      hermesBin: this.hermesBin,
       larkBin: this.larkBin ?? '(not found)',
     });
+  }
+
+  private async resolveEffectiveRuntime(): Promise<AgentRuntimeId> {
+    const selection = await clawDeskSettingsService.getAgentRuntimeSelection();
+    return selection.effective ?? selection.selected ?? 'openclaw';
   }
 
   async execute(instruction: string, context: AgentContext): Promise<void> {
@@ -240,65 +325,114 @@ export class AgentService extends EventEmitter {
 
     return new Promise<void>((resolve) => {
       const tSpawn = Date.now();
-      const useGatewayAgent = shouldUseGatewayAgent();
-      const prompt = useGatewayAgent
-        ? this.buildGatewayPrompt(instruction, context, memory, localToolsSummary)
-        : this.buildPrompt(instruction, context, memory, localToolsSummary);
+      let runtime: AgentRuntimeId = 'openclaw';
+      let useGatewayAgent = shouldUseGatewayAgent();
+      let prompt = '';
       const runId = `sarah-${process.pid}-${Date.now().toString(36)}-${runVersion}`;
-      this.activeRunId = runId;
-      const gatewayParams = buildGatewayAgentParams({
-        prompt,
-        sessionId: this.sessionId,
-        runId,
-      });
-      const proc = spawn(
-        this.openclawBin,
-        useGatewayAgent
-          ? [
-              'gateway',
-              'call',
-              'agent',
-              '--expect-final',
-              '--json',
-              '--timeout', String(Number(process.env.SARAH_OPENCLAW_GATEWAY_TIMEOUT_MS ?? 180_000)),
-              '--params', gatewayParams,
-            ]
-          : [
-              'agent',
-              '--agent', resolveOpenClawAgentId(),
-              '--json',
-              '--thinking', process.env.SARAH_OPENCLAW_THINKING?.trim() || 'off',
-              '--session-id', this.sessionId,
-              '--message', prompt,
-              ...(resolveOpenClawModel() ? ['--model', resolveOpenClawModel() as string] : []),
-            ],
-        {
-          env: { ...process.env, PATH: this.enhancedPath },
-          shell: false,
-        },
-      );
 
-      this.proc = proc;
-      let fullResponse = '';
-      let stdoutBuf = '';
-      let stderrBuf = '';
-      let tFirstStdout = 0;
-      let tFirstStderr = 0;
+      void (async () => {
+        runtime = await this.resolveEffectiveRuntime();
+        if (runVersion !== this.runVersion || !this.running) {
+          resolve();
+          return;
+        }
+        this.activeRuntime = runtime;
+        useGatewayAgent = runtime === 'openclaw' && shouldUseGatewayAgent();
+        prompt = useGatewayAgent
+          ? this.buildGatewayPrompt(instruction, context, memory, localToolsSummary)
+          : this.buildPrompt(instruction, context, memory, localToolsSummary);
+        this.activeRunId = runId;
+        const hermesToolsets = resolveHermesToolsets(instruction);
+        const gatewayParams = buildGatewayAgentParams({
+          prompt,
+          sessionId: this.sessionId,
+          runId,
+        });
+        logger.info('Agent runtime selected', {
+          runtime,
+          useGatewayAgent,
+          gatewayTransport: runtime === 'openclaw' && useGatewayAgent && shouldUseOpenClawWebSocketAgent() ? 'websocket' : undefined,
+          hermesToolsets: runtime === 'hermes' ? hermesToolsets : undefined,
+        });
+        if (runtime === 'hermes') {
+          this.emit('chunk', {
+            type: 'tool_use',
+            text: 'Starting Hermes CLI fallback',
+            toolName: 'Hermes',
+          });
+        }
+        if (runtime === 'openclaw' && useGatewayAgent && shouldUseOpenClawWebSocketAgent()) {
+          await this.executeOpenClawGatewayWebSocket({
+            runVersion,
+            runId,
+            tStart: tSpawn,
+            params: JSON.parse(gatewayParams) as Record<string, unknown>,
+            instruction,
+          });
+          resolve();
+          return;
+        }
 
-      proc.stdout.on('data', (chunk: Buffer) => {
-        if (tFirstStdout === 0) tFirstStdout = Date.now();
-        stdoutBuf += chunk.toString();
-      });
+        const proc = runtime === 'hermes'
+          ? spawn(
+              this.hermesBin,
+              [
+                '--oneshot', prompt,
+                '--toolsets', hermesToolsets,
+              ],
+              {
+                env: { ...process.env, PATH: buildEnhancedPath(this.hermesBin), HERMES_ACCEPT_HOOKS: '1' },
+                shell: false,
+              },
+            )
+          : spawn(
+              this.openclawBin,
+              useGatewayAgent
+                ? [
+                    'gateway',
+                    'call',
+                    'agent',
+                    '--expect-final',
+                    '--json',
+                    '--timeout', String(Number(process.env.SARAH_OPENCLAW_GATEWAY_TIMEOUT_MS ?? 180_000)),
+                    '--params', gatewayParams,
+                  ]
+                : [
+                    'agent',
+                    '--agent', resolveOpenClawAgentId(),
+                    '--json',
+                    '--thinking', process.env.SARAH_OPENCLAW_THINKING?.trim() || 'off',
+                    '--session-id', this.sessionId,
+                    '--message', prompt,
+                    ...(resolveOpenClawModel() ? ['--model', resolveOpenClawModel() as string] : []),
+                  ],
+              {
+                env: { ...process.env, PATH: this.enhancedPath },
+                shell: false,
+              },
+            );
 
-      proc.stderr.on('data', (chunk: Buffer) => {
-        if (tFirstStderr === 0) tFirstStderr = Date.now();
-        const data = chunk.toString();
-        stderrBuf += data;
-        logger.debug('openclaw stderr', { data: data.slice(0, 300) });
-      });
+        this.proc = proc;
+        let fullResponse = '';
+        let stdoutBuf = '';
+        let stderrBuf = '';
+        let tFirstStdout = 0;
+        let tFirstStderr = 0;
 
-      proc.on('close', (code) => {
-        void (async () => {
+        proc.stdout.on('data', (chunk: Buffer) => {
+          if (tFirstStdout === 0) tFirstStdout = Date.now();
+          stdoutBuf += chunk.toString();
+        });
+
+        proc.stderr.on('data', (chunk: Buffer) => {
+          if (tFirstStderr === 0) tFirstStderr = Date.now();
+          const data = chunk.toString();
+          stderrBuf += data;
+          logger.debug(`${runtime} stderr`, { data: data.slice(0, 300) });
+        });
+
+        proc.on('close', (code) => {
+          void (async () => {
           const tClose = Date.now();
           if (runVersion !== this.runVersion) {
             resolve();
@@ -307,12 +441,14 @@ export class AgentService extends EventEmitter {
 
           this.running = false;
           this.proc = null;
+          this.activeRuntime = null;
           if (this.activeRunId === runId) {
             this.activeRunId = null;
           }
-          const parsed = parseOpenClawResponse(stdoutBuf);
-          logger.info('openclaw-timing', {
-            transport: useGatewayAgent ? 'gateway-call' : 'agent-cli',
+          const parsed = runtime === 'hermes' ? parseHermesResponse(stdoutBuf) : parseOpenClawResponse(stdoutBuf);
+          logger.info('agent-runtime-timing', {
+            runtime,
+            transport: runtime === 'hermes' ? 'hermes-oneshot' : useGatewayAgent ? 'gateway-call' : 'agent-cli',
             spawn_to_first_stderr_ms: tFirstStderr ? tFirstStderr - tSpawn : null,
             spawn_to_first_stdout_ms: tFirstStdout ? tFirstStdout - tSpawn : null,
             spawn_to_close_ms: tClose - tSpawn,
@@ -335,8 +471,8 @@ export class AgentService extends EventEmitter {
               this.emit('done');
             }
           } else {
-            const cleanedError = sanitizeOpenClawError(stderrBuf);
-            logger.warn('openclaw exited non-zero', { code, stderr: cleanedError.slice(0, 400) });
+            const cleanedError = runtime === 'hermes' ? sanitizeHermesError(stderrBuf) : sanitizeOpenClawError(stderrBuf);
+            logger.warn('agent runtime exited non-zero', { runtime, code, stderr: cleanedError.slice(0, 400) });
             const isAuthError =
               cleanedError.includes('auth') ||
               cleanedError.includes('login') ||
@@ -344,32 +480,45 @@ export class AgentService extends EventEmitter {
               cleanedError.includes('401') ||
               cleanedError.includes('403');
             const message = isAuthError
-              ? 'OpenClaw 未登录或鉴权失败。请先在终端确认 `openclaw agent --agent main --message "test" --json` 可用。'
-              : `OpenClaw 退出，代码 ${code}。\n可先点击右上角“自检”重试；如仍失败，再在终端运行 \`openclaw agent --agent main --message "test" --json\`。\n${cleanedError.slice(0, 200)}`;
+              ? `${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} 未登录或鉴权失败。请先在设置里切换运行时，或在终端确认 ${runtime === 'hermes' ? '`hermes status`' : '`openclaw whoami`'} 可用。`
+              : `${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} 退出，代码 ${code}。\n可先在 Settings 切换 agent runtime 后重试。\n${cleanedError.slice(0, 200)}`;
             if (runVersion === this.runVersion) {
               this.emit('error', message);
             }
           }
           this.drainQueue();
           resolve();
-        })();
-      });
+          })();
+        });
 
-      proc.on('error', (err: NodeJS.ErrnoException) => {
-        if (runVersion !== this.runVersion) {
+        proc.on('error', (err: NodeJS.ErrnoException) => {
+          if (runVersion !== this.runVersion) {
+            resolve();
+            return;
+          }
+          this.running = false;
+          this.proc = null;
+          this.activeRuntime = null;
+          if (this.activeRunId === runId) {
+            this.activeRunId = null;
+          }
+          const runtimeBin = runtime === 'hermes' ? this.hermesBin : this.openclawBin;
+          logger.error('Failed to spawn agent runtime', { runtime, code: err.code, bin: runtimeBin });
+          const message =
+            err.code === 'ENOENT'
+              ? `${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} CLI 未找到 (尝试路径: ${runtimeBin})。请先安装或在 Settings 切换运行时。`
+              : `无法启动 ${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} CLI: ${err.message}`;
+          this.emit('error', message);
+          this.drainQueue();
           resolve();
-          return;
-        }
+        });
+      })().catch((error) => {
         this.running = false;
         this.proc = null;
-        if (this.activeRunId === runId) {
-          this.activeRunId = null;
-        }
-        logger.error('Failed to spawn openclaw', { code: err.code, bin: this.openclawBin });
-        const message =
-          err.code === 'ENOENT'
-            ? `openclaw CLI 未找到 (尝试路径: ${this.openclawBin})。请先安装并确认 \`openclaw\` 命令可用。`
-            : `无法启动 openclaw CLI: ${err.message}`;
+        this.activeRuntime = null;
+        this.activeRunId = null;
+        const message = error instanceof Error ? error.message : String(error);
+        logger.error('Failed to start agent runtime', { error: message });
         this.emit('error', message);
         this.drainQueue();
         resolve();
@@ -398,14 +547,16 @@ export class AgentService extends EventEmitter {
 
     this.runVersion += 1;
     const runId = this.activeRunId;
+    const activeRuntime = this.activeRuntime;
     if (this.proc) {
       this.proc.kill('SIGTERM');
       this.proc = null;
     }
-    if (runId && shouldUseGatewayAgent()) {
+    if (runId && activeRuntime === 'openclaw' && shouldUseGatewayAgent()) {
       this.abortGatewayRun(runId);
     }
     this.activeRunId = null;
+    this.activeRuntime = null;
     this.running = false;
     if (emitDone) {
       this.emit('done');
@@ -414,19 +565,96 @@ export class AgentService extends EventEmitter {
   }
 
   private abortGatewayRun(runId: string): void {
-    const sessionKey = `agent:${resolveOpenClawAgentId()}:explicit:${this.sessionId}`;
-    const params = JSON.stringify({ key: sessionKey, runId });
-    const proc = spawn(
-      this.openclawBin,
-      ['gateway', 'call', 'sessions.abort', '--json', '--timeout', '5000', '--params', params],
-      {
-        env: { ...process.env, PATH: this.enhancedPath },
-        shell: false,
-        stdio: 'ignore',
-        detached: true,
+    abortOpenClawGatewayRun({
+      runId,
+      sessionId: this.sessionId,
+      agentId: resolveOpenClawAgentId(),
+    });
+  }
+
+  private async executeOpenClawGatewayWebSocket(params: {
+    runVersion: number;
+    runId: string;
+    tStart: number;
+    params: Record<string, unknown>;
+    instruction: string;
+  }): Promise<void> {
+    let fullResponse = '';
+    let streamed = false;
+    let tFirstDelta = 0;
+    let tAccepted = 0;
+
+    this.emit('chunk', {
+      type: 'tool_use',
+      text: 'Connecting to OpenClaw Gateway',
+      toolName: 'OpenClaw Gateway',
+    });
+
+    const result = await runOpenClawGatewayAgent({
+      params: params.params,
+      timeoutMs: Number(process.env.SARAH_OPENCLAW_GATEWAY_TIMEOUT_MS ?? 180_000),
+      onAccepted: () => {
+        if (tAccepted === 0) tAccepted = Date.now();
+        if (params.runVersion === this.runVersion) {
+          this.emit('chunk', {
+            type: 'tool_use',
+            text: 'Gateway accepted the run',
+            toolName: 'OpenClaw Gateway',
+          });
+        }
       },
-    );
-    proc.unref();
+      onProgress: (message, toolName) => {
+        if (params.runVersion === this.runVersion) {
+          this.emit('chunk', { type: 'tool_use', text: message, toolName });
+        }
+      },
+      onText: (delta) => {
+        if (params.runVersion !== this.runVersion) return;
+        if (tFirstDelta === 0) tFirstDelta = Date.now();
+        streamed = true;
+        fullResponse += delta;
+        this.emit('chunk', { type: 'text', text: delta });
+      },
+    });
+
+    if (params.runVersion !== this.runVersion) {
+      return;
+    }
+
+    if (!streamed && result.text) {
+      fullResponse = result.text;
+      await this.emitVisibleText(params.runVersion, result.text);
+    } else if (streamed && result.text && result.text.length > fullResponse.length && result.text.startsWith(fullResponse)) {
+      const remainder = result.text.slice(fullResponse.length);
+      fullResponse = result.text;
+      await this.emitVisibleText(params.runVersion, remainder);
+    }
+
+    this.running = false;
+    this.proc = null;
+    this.activeRuntime = null;
+    if (this.activeRunId === params.runId) {
+      this.activeRunId = null;
+    }
+
+    logger.info('agent-runtime-timing', {
+      runtime: 'openclaw',
+      transport: 'gateway-websocket',
+      accepted_ms: tAccepted ? tAccepted - params.tStart : null,
+      first_delta_ms: tFirstDelta ? tFirstDelta - params.tStart : null,
+      total_ms: Date.now() - params.tStart,
+      streamed,
+      parsed_chars: fullResponse.length,
+    });
+
+    memoryService.appendAction(params.instruction, fullResponse);
+    if (fullResponse.trim()) {
+      memoryService.appendTurn(params.instruction, fullResponse);
+    }
+    if (params.runVersion === this.runVersion) {
+      this.emit('done');
+    }
+    this.drainQueue();
   }
 
   /** Run the next queued task if one exists. Called after each task completes. */
@@ -470,17 +698,23 @@ export class AgentService extends EventEmitter {
       .filter(Boolean)
       .join('\n');
 
-    const contextHint = context.url || context.screenshotPath
-      ? '如果任务依赖当前屏幕，请优先使用上面的 URL 或截图路径。'
-      : '当前没有 URL 或截图；如果用户指代“这个页面/当前内容”，请要求用户补充 URL 或正文。';
+    const contextHint = buildContextAcquisitionPolicy(context);
 
-    return `你是 Sarah 的快速桌面助手。请用中文直接回答，优先简洁。
+    return `你是 Sarah 的快速桌面助手。请用中文直接回答，优先简洁，但要主动完成可执行任务。
 
 当前屏幕上下文：
 ${screenContext}
 
-上下文原则：
 ${contextHint}
+
+可用能力与任务执行原则：
+- 网页/浏览器内容：优先使用 web-access / browser 工具读取当前 URL 或当前标签页。
+- 非网页内容：优先使用截图路径进行视觉理解，不要要求用户自己截图。
+- 飞书写入：先整理内容，再使用本机 Local Tools 摘要里的飞书 CLI；如果摘要显示 lark-cli 的绝对路径，优先直接用那个路径。不要猜 lark 或 feishu 命令。
+- 如系统要求授权，只请求写入授权或目标位置确认；不要要求用户自己截图或复制页面内容。
+- 工具失败时要自动切换备选路径：web-access 失败 → 截图；截图不可用 → 再向用户要内容。
+- 如果用户说“当前页面/这个页面/这里/保存到飞书”，默认就是让你根据当前上下文主动处理。
+- 优先使用读取/API/CLI；只有确实需要点击页面时才调用浏览器自动化，避免无意义地慢速操作 Chrome。
 
 最近 Sarah 操作：
 ${recentActionsStr}
@@ -517,6 +751,8 @@ ${instruction}`;
       .filter(Boolean)
       .join('\n');
 
+    const contextAcquisitionPolicy = buildContextAcquisitionPolicy(context);
+
     // Tell the agent honestly what page-level context is available, so it
     // does not invent a “current page content” it never received.
     const hasUrl = !!context.url;
@@ -524,11 +760,11 @@ ${instruction}`;
     const contextLimitations: string[] = [];
     if (!hasUrl && !hasScreenshot) {
       contextLimitations.push(
-        '- 当用户说”当前页/这个页面/这篇文章”等指代式说法时，你没有任何页面内容。请明确告诉用户：需要他粘贴 URL 或正文，否则你无法处理。',
+        '- 当前没有 URL 或截图路径。只有在 web-access 也无法访问当前浏览器/页面时，才要求用户提供内容。',
       );
     } else if (!hasUrl && hasScreenshot) {
       contextLimitations.push(
-        '- 当前没有 URL，但有截图可用。用户说”当前页面/这个页面”时，直接分析截图内容来完成任务。不要要求用户提供 URL。',
+        '- 当前没有 URL，但有截图路径。用户说”当前页面/这个页面”时，直接分析截图内容来完成任务。不要要求用户提供 URL 或自己截图。',
       );
     }
     const limitationsBlock = contextLimitations.length
@@ -555,17 +791,24 @@ ${instruction}`;
 - lark-task：飞书任务
 - lark-sheets：飞书电子表格
 
+═══ 本机 CLI 使用原则 ═══
+- 本机 Local Tools 摘要会列出真实可用的二进制路径。调用 CLI 时优先用摘要里的绝对路径，不要猜短命令名。
+- 飞书 CLI 当前通常是 lark-cli，不是 lark 或 feishu。如果摘要显示 /opt/homebrew/bin/lark-cli，就直接调用这个路径。
+- 飞书写入前可以先运行 lark-cli auth status / lark-cli doctor 确认登录；写入动作只在用户明确要求或已授权时执行。
+- 对“保存到飞书”的请求，不要只回复计划；应实际读取当前页面/截图，整理内容，并调用飞书 CLI 或相应飞书能力写入。
+- 优先使用 CLI/API 和网页文本抽取；只有无法直接读取时才用慢速浏览器自动化点击。
+
 ═══ 场景决策树 ═══
 1. “保存/记录到飞书”类指令：
    - 应用名包含 Lark/Feishu/飞书 → 直接用 lark-doc 或 lark-im
-   - 应用名是浏览器（Chrome/Safari/Edge）→ web-access 抽取当前页面 → lark-doc/lark-im 写入
-   - 其他任何应用（CodePilot、微信、备忘录等）→ 直接分析截图内容 → 提取文字 → 写入飞书
+   - 应用名是浏览器或上下文有 URL → web-access 抽取当前页面 → lark-doc/lark-im 写入；web-access 失败时转截图
+   - 其他任何应用（Codex、CodePilot、微信、备忘录等）→ 直接分析截图内容 → 提取文字 → 写入飞书
 2. “去 XX 网站搜索/看看/找一下”类指令：
    - 不管当前在什么应用，直接用 web-access 打开浏览器操作
    - web-access 通过 CDP 连接用户已打开的 Chrome，保留登录态（X、GitHub 等无需重新登录）
 3. web-access 抽取时，优先使用「当前屏幕上下文」中的 URL
-4. 有截图但没有 URL 时 → 分析截图内容，不要要求用户提供 URL
-5. 只有当既没有 URL 也没有截图时，才要求用户提供内容
+4. web-access 不可用或不是网页时 → 分析截图内容，不要要求用户提供 URL 或自己截图
+5. 只有当 URL、web-access、截图路径都不可用时，才要求用户提供内容
 
 ═══ 链式调用示例 ═══
 - “把这个网页内容加到飞书多维表格”（当前在 Chrome）：web-access 抽取 → feishu-bitable 写入
@@ -582,6 +825,9 @@ ${instruction}`;
 截图捕获的是用户按下热键那一刻的屏幕内容（可能是 CodePilot 下方的其他窗口）。
 - 如果有截图 → 直接分析截图中的可见内容来完成任务
 - 不要因为 appName 是 CodePilot 就拒绝执行或要求用户提供 URL
+
+═══ 强制上下文获取策略 ═══
+${contextAcquisitionPolicy}
 
 ═══ 本机 Local Tools（检测结果，不代表自动授权） ═══
 ${localToolsSummary}

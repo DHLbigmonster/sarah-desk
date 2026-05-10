@@ -77,6 +77,33 @@ export interface OpenClawStatus {
   authenticated: boolean;
 }
 
+export type AgentRuntimeId = 'openclaw' | 'hermes';
+
+export interface AgentRuntimeStatus {
+  id: AgentRuntimeId;
+  name: string;
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  authenticated: boolean;
+  ready: boolean;
+  detail: string;
+  setupHint: string | null;
+}
+
+export interface AgentRuntimeSelection {
+  selected: AgentRuntimeId | null;
+  effective: AgentRuntimeId | null;
+  runtimes: AgentRuntimeStatus[];
+}
+
+export interface AgentRuntimeConnectResult {
+  success: boolean;
+  runtimeId: AgentRuntimeId;
+  detail: string;
+  selection: AgentRuntimeSelection;
+}
+
 export interface ClawDeskSettingsOverview {
   themeMode: ClawDeskThemeMode;
   versionInfo: ClawDeskVersionInfo;

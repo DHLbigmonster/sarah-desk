@@ -1,4 +1,4 @@
-export type LocalToolId = 'openclaw' | 'obsidian' | 'lark-cli';
+export type LocalToolId = 'openclaw' | 'hermes' | 'obsidian' | 'lark-cli';
 
 export type LocalToolCategory = 'agent' | 'knowledge' | 'productivity';
 

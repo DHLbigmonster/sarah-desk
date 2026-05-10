@@ -22,6 +22,9 @@ import type {
   ClawDeskSkillDetail,
   ClawDeskSettingsOverview,
   ClawDeskThemeMode,
+  AgentRuntimeId,
+  AgentRuntimeConnectResult,
+  AgentRuntimeSelection,
   HotkeyConfig,
   HotkeyCheckResult,
   OpenClawStatus,
@@ -100,6 +103,9 @@ export interface ClawDeskApi {
   setConfigKey: (key: string, value: string) => Promise<{ success: boolean }>;
   deleteConfigKey: (key: string) => Promise<{ success: boolean }>;
   getOpenClawStatus: () => Promise<OpenClawStatus>;
+  getAgentRuntimeSelection: () => Promise<AgentRuntimeSelection>;
+  setAgentRuntime: (runtimeId: AgentRuntimeId) => Promise<AgentRuntimeSelection>;
+  connectAgentRuntime: (runtimeId: AgentRuntimeId) => Promise<AgentRuntimeConnectResult>;
 }
 
 export interface MiniApi {

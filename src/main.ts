@@ -3,7 +3,6 @@ process.stdout.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'E
 process.stderr.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE') throw err; });
 import { app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut, ipcMain, shell, Notification } from 'electron';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import dotenv from 'dotenv';
 import log from 'electron-log';
 
@@ -36,6 +35,7 @@ import { asrService } from './main/services/asr/asr.service';
 import { isASRConfigured } from './main/services/asr';
 import { lightweightRefinementClient } from './main/services/agent/lightweight-refinement-client';
 import { dictationRefinementService } from './main/services/agent';
+import { clawDeskSettingsService } from './main/services/clawdesk/settings.service';
 import { textInputService } from './main/services/text-input';
 import { getIsAppQuitting, markAppQuitting } from './main/app-lifecycle';
 import type { MiniStatus } from './shared/types/mini';
@@ -53,6 +53,7 @@ setupAllIpcHandlers();
 setupMiniIpcHandlers();
 
 let tray: Tray | null = null;
+let trayMenu: Menu | null = null;
 /**
  * Hidden renderer that hosts the AudioRecorder (Web Audio API).
  * Main process cannot call getUserMedia directly, so we keep one
@@ -180,14 +181,6 @@ function createRecorderWindow(): void {
   logger.info('Recorder window created (hidden)');
 }
 
-function detectOpenClaw(): { available: boolean; binaryPath: string | null; detail: string } {
-  try {
-    const bin = execFileSync('which', ['openclaw'], { encoding: 'utf-8', timeout: 3000 }).trim();
-    if (bin) return { available: true, binaryPath: bin, detail: bin };
-  } catch { /* not found */ }
-  return { available: false, binaryPath: null, detail: 'openclaw not found — Command / Quick Ask will not work' };
-}
-
 async function getMiniStatus(): Promise<MiniStatus> {
   const gateway = await clawDeskMainWindow.getStatus();
   const gatewayUrl = `http://${gateway.endpoint}`;
@@ -195,7 +188,8 @@ async function getMiniStatus(): Promise<MiniStatus> {
   const accessibilityGranted = permissionsService.getAccessibilityStatus();
   const screenRecordingStatus = permissionsService.getScreenRecordingStatus();
   const asrConfigured = isASRConfigured();
-  const agentStatus = detectOpenClaw();
+  const runtimeSelection = await clawDeskSettingsService.getAgentRuntimeSelection();
+  const effectiveRuntime = runtimeSelection.runtimes.find((runtime) => runtime.id === runtimeSelection.effective);
 
   return {
     mode: 'mini',
@@ -214,7 +208,14 @@ async function getMiniStatus(): Promise<MiniStatus> {
       configured: lightweightRefinementClient.isConfigured(),
       detail: lightweightRefinementClient.isConfigured() ? 'Model configured' : 'Using local fallback',
     },
-    agent: agentStatus,
+    agent: {
+      available: Boolean(effectiveRuntime?.ready),
+      binaryPath: effectiveRuntime?.path ?? null,
+      detail: effectiveRuntime?.detail ?? 'No agent runtime was detected. Install or configure OpenClaw or Hermes.',
+      selectedRuntime: runtimeSelection.selected,
+      effectiveRuntime: runtimeSelection.effective,
+      runtimes: runtimeSelection.runtimes,
+    },
     hotkeys: {
       accessibilityGranted,
       keyboardHookActive: voiceModeManager.isReady,
@@ -462,7 +463,7 @@ function createTray(): void {
     const a11yOk = permissionsService.getAccessibilityStatus();
     const baseOk = micOk && a11yOk;
 
-    const menu = Menu.buildFromTemplate([
+    trayMenu = Menu.buildFromTemplate([
       {
         label: 'Sarah Settings',
         click: () => miniSettingsWindow.show(),
@@ -529,7 +530,12 @@ function createTray(): void {
         click: () => app.quit(),
       },
     ]);
-    tray?.setContextMenu(menu);
+    // Do not attach the menu with setContextMenu() on macOS. Electron/AppKit can
+    // show the native menu on the same click that opens our custom popover,
+    // producing two overlapping tray surfaces. We pop it manually on right-click.
+    if (process.platform !== 'darwin') {
+      tray?.setContextMenu(trayMenu);
+    }
   };
 
   rebuildMenu();
@@ -558,7 +564,10 @@ function createTray(): void {
   });
 
   tray.on('right-click', () => {
-    tray?.popUpContextMenu();
+    menubarPopoverWindow.hide();
+    if (trayMenu) {
+      tray?.popUpContextMenu(trayMenu);
+    }
   });
 
 }

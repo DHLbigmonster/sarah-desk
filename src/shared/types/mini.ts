@@ -1,5 +1,5 @@
 import type { ASRStatus } from './asr';
-import type { HotkeyConfig } from './clawdesk-settings';
+import type { AgentRuntimeId, AgentRuntimeStatus, HotkeyConfig } from './clawdesk-settings';
 
 export type MiniVoiceState =
   | 'idle'
@@ -43,6 +43,9 @@ export interface MiniAgentStatus {
   available: boolean;
   binaryPath: string | null;
   detail: string;
+  selectedRuntime: AgentRuntimeId | null;
+  effectiveRuntime: AgentRuntimeId | null;
+  runtimes: AgentRuntimeStatus[];
 }
 
 export interface MiniOnboardingStatus {

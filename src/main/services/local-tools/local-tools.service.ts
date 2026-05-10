@@ -22,6 +22,9 @@ const logger = log.scope('local-tools');
 
 const DEFAULT_OPENCLAW_PORT = 18789;
 const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), '.openclaw', 'openclaw.json');
+const HERMES_HOME = path.join(os.homedir(), '.hermes');
+const HERMES_DESKTOP_SUPPORT = path.join(os.homedir(), 'Library', 'Application Support', 'HermesDesktop');
+const HERMES_LAUNCH_AGENT = path.join(os.homedir(), 'Library', 'LaunchAgents', 'ai.hermes.gateway.plist');
 const EXTRA_BIN_DIRS = [
   '/opt/homebrew/bin',
   '/usr/local/bin',
@@ -199,7 +202,7 @@ async function detectOpenClaw(): Promise<LocalToolStatus> {
       setupHint: 'Install OpenClaw, then run `openclaw onboard` and `openclaw gateway start`.',
       docsUrl: 'https://github.com/openclaw/openclaw',
       capabilities: [
-        safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through the local OpenClaw Gateway.', null, false),
+        safeCapability('agent.ask', 'Ask agent', 'Stream Sarah instructions through the local OpenClaw Gateway WebSocket.', null, false),
       ],
       signals: {
         configFound: gateway.configFound,
@@ -251,7 +254,7 @@ async function detectOpenClaw(): Promise<LocalToolStatus> {
     setupHint: health === 'ready' ? null : 'Run `openclaw onboard`, then `openclaw gateway start` and `openclaw gateway probe`.',
     docsUrl: 'https://github.com/openclaw/openclaw',
     capabilities: [
-      safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through the local OpenClaw Gateway.', 'openclaw gateway call agent', health === 'ready'),
+      safeCapability('agent.ask', 'Ask agent', 'Stream Sarah instructions through the local OpenClaw Gateway WebSocket.', 'ws://127.0.0.1:<gateway-port>', health === 'ready'),
       externalCapability('gateway.manage', 'Manage Gateway', 'Start, restart, or stop the local OpenClaw Gateway.', 'openclaw gateway start', true),
     ],
     signals: {
@@ -260,6 +263,84 @@ async function detectOpenClaw(): Promise<LocalToolStatus> {
       gatewayReachable,
       gatewayPort: gateway.port,
       whoamiAuthenticated,
+    },
+    checkedAt,
+  };
+}
+
+function parseHermesAuthenticated(output: string): boolean {
+  const lower = output.toLowerCase();
+  const providerConfigured = /provider:\s+(?!\(?not\s+set\)?)([^\n]+)/i.test(output);
+  const modelConfigured = /model:\s+(?!\(?not\s+set\)?)([^\n]+)/i.test(output);
+  const hasUsableKey = /✓/.test(output) || /configured/i.test(output);
+  return (providerConfigured || modelConfigured) && hasUsableKey && !/no api keys configured/.test(lower);
+}
+
+async function detectHermes(): Promise<LocalToolStatus> {
+  const checkedAt = checkedNow();
+  const binary = await resolveBinary(['hermes']);
+  const desktopConfigFound = fs.existsSync(path.join(HERMES_DESKTOP_SUPPORT, 'connections.json'));
+  const hermesHomeFound = fs.existsSync(HERMES_HOME);
+  const launchAgentFound = fs.existsSync(HERMES_LAUNCH_AGENT);
+
+  if (!binary) {
+    return {
+      id: 'hermes',
+      name: 'Hermes',
+      category: 'agent',
+      description: 'Local agent runtime available for Command and Quick Ask.',
+      installed: desktopConfigFound || hermesHomeFound,
+      path: null,
+      version: null,
+      authState: 'unknown',
+      health: desktopConfigFound || hermesHomeFound ? 'needs_setup' : 'missing',
+      detail: desktopConfigFound || hermesHomeFound
+        ? 'Hermes files were detected, but the CLI was not found on PATH.'
+        : 'Hermes CLI is not installed or not on PATH.',
+      setupHint: 'Install Hermes CLI or add it to ~/.local/bin, /opt/homebrew/bin, or /usr/local/bin.',
+      docsUrl: null,
+      capabilities: [
+        safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through the Hermes CLI fallback.', null, false),
+      ],
+      signals: {
+        desktopConfigFound,
+        hermesHomeFound,
+        launchAgentFound,
+      },
+      checkedAt,
+    };
+  }
+
+  const [version, status] = await Promise.all([
+    resolveVersion(binary.path, [['--version'], ['version']]),
+    run(binary.path, ['status'], 5000),
+  ]);
+  const statusText = `${status?.stdout ?? ''}\n${status?.stderr ?? ''}`;
+  const authenticated = parseHermesAuthenticated(statusText);
+
+  return {
+    id: 'hermes',
+    name: 'Hermes',
+    category: 'agent',
+    description: 'Local agent runtime available for Command and Quick Ask.',
+    installed: true,
+    path: binary.path,
+    version,
+    authState: authenticated ? 'authenticated' : 'needs_auth',
+    health: authenticated ? 'ready' : 'needs_setup',
+    detail: authenticated
+      ? 'Hermes is installed and model/auth configuration was detected.'
+      : 'Hermes is installed, but model/auth setup was not confirmed.',
+    setupHint: authenticated ? null : 'Run `hermes setup`, `hermes model`, or `hermes status` to finish setup.',
+    docsUrl: null,
+    capabilities: [
+      safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through the Hermes CLI fallback.', 'hermes --oneshot', authenticated),
+      externalCapability('gateway.manage', 'Manage Gateway', 'Start, restart, or stop the local Hermes Gateway.', 'hermes gateway start', true),
+    ],
+    signals: {
+      desktopConfigFound,
+      hermesHomeFound,
+      launchAgentFound,
     },
     checkedAt,
   };
@@ -365,9 +446,11 @@ async function detectLarkCli(): Promise<LocalToolStatus> {
     setupHint: ready ? null : `Run the ${binary.command} auth/login flow before enabling Feishu actions.`,
     docsUrl: null,
     capabilities: [
-      safeCapability('docs.read', 'Read docs', 'Read Feishu/Lark documents after authentication.', `${binary.command} doc`, ready),
-      writeCapability('docs.write', 'Write docs', 'Create or update Feishu/Lark documents with explicit approval.', `${binary.command} doc`, ready),
-      externalCapability('im.send', 'Send message', 'Send Feishu/Lark messages only after explicit approval.', `${binary.command} im`, ready),
+      safeCapability('docs.read', 'Read docs', 'Read Feishu/Lark documents after authentication.', `${binary.path} docs`, ready),
+      writeCapability('docs.write', 'Write docs', 'Create or update Feishu/Lark documents with explicit approval.', `${binary.path} docs`, ready),
+      safeCapability('drive.read', 'Find files', 'Search and inspect Feishu/Lark Drive files and folders.', `${binary.path} drive`, ready),
+      writeCapability('drive.write', 'Write files', 'Create folders, upload files, or move Feishu/Lark Drive content with explicit approval.', `${binary.path} drive`, ready),
+      externalCapability('im.send', 'Send message', 'Send Feishu/Lark messages only after explicit approval.', `${binary.path} im`, ready),
     ],
     signals: {
       command: binary.command,
@@ -401,12 +484,13 @@ export class LocalToolsService {
 
     const results = await Promise.allSettled([
       detectOpenClaw(),
+      detectHermes(),
       detectObsidian(),
       detectLarkCli(),
     ]);
     const tools = results.map((result, index) => {
       if (result.status === 'fulfilled') return result.value;
-      const ids = ['openclaw', 'obsidian', 'lark-cli'] as const;
+      const ids = ['openclaw', 'hermes', 'obsidian', 'lark-cli'] as const;
       logger.warn('Local tool detection failed', {
         toolId: ids[index],
         error: result.reason instanceof Error ? result.reason.message : String(result.reason),
@@ -495,18 +579,33 @@ export class LocalToolsService {
 
   async getAgentContextSummary(): Promise<string> {
     const snapshot = await this.getSnapshot();
-    return snapshot.tools
+    const lines = snapshot.tools
       .map((tool) => {
         const capabilities = tool.capabilities
           .filter((capability) => capability.enabled)
           .map((capability) => {
             const approved = capability.approval ? ' (approved)' : capability.requiresConsent ? ' (needs approval)' : '';
-            return `${capability.label}${approved}`;
+            const command = capability.commandHint ? ` via ${capability.commandHint}` : '';
+            return `${capability.label}${approved}${command}`;
           })
           .join(', ') || 'no enabled actions';
-        return `- ${tool.name}: ${tool.health}; ${tool.detail}; capabilities: ${capabilities}`;
+        const pathHint = tool.path ? ` path=${tool.path};` : '';
+        return `- ${tool.name}: ${tool.health};${pathHint} ${tool.detail}; capabilities: ${capabilities}`;
       })
       .join('\n');
+    const lark = snapshot.tools.find((tool) => tool.id === 'lark-cli' && tool.health === 'ready');
+    const larkCommand = lark?.path ?? (lark?.signals.command ? String(lark.signals.command) : null);
+    const larkGuide = larkCommand
+      ? [
+          '',
+          'Feishu/Lark CLI operating notes:',
+          `- The concrete Feishu CLI command on this Mac is \`${larkCommand}\`; prefer this exact binary path instead of guessing \`lark\` or \`feishu\`.`,
+          `- Inspect auth with \`${larkCommand} auth status\` and health with \`${larkCommand} doctor\`.`,
+          `- For docs/wiki/drive tasks, use \`${larkCommand} docs ...\`, \`${larkCommand} drive ...\`, or \`${larkCommand} wiki ...\` after checking command help/schema.`,
+          `- For write/send actions, proceed only after Sarah/user approval or when the user explicitly asked for that write action.`,
+        ].join('\n')
+      : '';
+    return `${lines}${larkGuide}`;
   }
 }
 

@@ -16,6 +16,7 @@
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
     "verify:mini": "node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts",
+    "screenshots:readme": "electron scripts/capture-readme-screenshots.cjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

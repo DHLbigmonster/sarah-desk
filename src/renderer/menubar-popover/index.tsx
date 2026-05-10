@@ -253,7 +253,7 @@ function App(): ReactNode {
             <StatusRow
               icon={<Bot size={16} />}
               label="Agent"
-              value={status.agent.available ? 'OpenClaw' : 'Not found'}
+              value={status.agent.effectiveRuntime === 'hermes' ? 'Hermes' : status.agent.effectiveRuntime === 'openclaw' ? 'OpenClaw' : 'Not found'}
               detail={status.agent.available ? 'Ready' : 'Install'}
               tone={status.agent.available ? 'ok' : 'error'}
             />

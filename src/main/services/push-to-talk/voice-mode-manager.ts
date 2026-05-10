@@ -313,9 +313,18 @@ export class VoiceModeManager {
     this.lastStartTime = now;
     logger.info('VoiceModeManager: START command');
 
-    // Capture context BEFORE showing overlay, so we get the user's actual
-    // frontmost app (not our own CodePilot window that appears on overlay).
-    try { this.pendingContext = await contextCaptureService.capture(); } catch { this.pendingContext = null; }
+    // Capture context before showing the voice HUD. If the user starts a new
+    // Command while Sarah's answer overlay is still visible, hide it first so
+    // the screenshot and frontmost app belong to the underlying target app.
+    try {
+      if (agentWindow.isVisible()) {
+        agentWindow.hide();
+        await new Promise<void>((resolve) => { setTimeout(resolve, 120); });
+      }
+      this.pendingContext = await contextCaptureService.capture();
+    } catch {
+      this.pendingContext = null;
+    }
 
     this.state = 'command_recording';
     this.publishOverlayState('command', 'recording');

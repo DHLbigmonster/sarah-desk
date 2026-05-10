@@ -516,3 +516,231 @@ Known limitations / next steps:
 
 - Follow-up voice input currently uses the existing ASR path and appends the final transcript into the composer; it does not yet run the dictation refinement prompt before insertion into the composer.
 - Manual visual validation still needs the user to trigger an actual Command/Quick Ask and inspect the installed overlay in context.
+
+## 2026-05-06 Hermes Runtime Switcher
+
+User asked whether Sarah can connect to Hermes in addition to OpenClaw, with a low-friction Settings interaction where normal users can switch between OpenClaw and Hermes in one click and Sarah can recognize existing local Hermes setup.
+
+- Local discovery:
+  - Confirmed this machine has `~/.local/bin/hermes`, `/Applications/HermesDesktop.app`, `~/.hermes`, `~/Library/Application Support/HermesDesktop/connections.json`, and `~/Library/LaunchAgents/ai.hermes.gateway.plist`.
+  - `hermes --version` reports Hermes Agent v0.11.0 and `hermes status` reports the gateway service running via launchd.
+- Runtime architecture:
+  - Added shared `AgentRuntimeId`, `AgentRuntimeStatus`, and `AgentRuntimeSelection` types.
+  - `ClawDeskSettingsService` now stores `selectedAgentRuntime` in `clawdesk-settings.json`.
+  - Runtime detection checks OpenClaw and Hermes, including common GUI-launch PATH gaps such as `~/.local/bin`.
+  - Effective runtime selection is automatic when no manual choice exists: prefer ready OpenClaw for backwards compatibility, otherwise any ready runtime, otherwise installed runtime as a setup hint.
+  - `AgentService` now chooses the effective runtime per run. OpenClaw keeps the existing gateway/CLI path; Hermes uses `hermes --oneshot <prompt>` with `HERMES_ACCEPT_HOOKS=1`.
+  - Abort logic only sends OpenClaw gateway aborts when the active runtime is OpenClaw.
+- UI / IPC:
+  - Added `claw-desk:get-agent-runtime-selection` and `claw-desk:set-agent-runtime` IPC channels plus preload APIs.
+  - Mini Settings now shows an `Agent Runtime` card with two one-click options: OpenClaw and Hermes.
+- Runtime cards show Ready / Setup / Missing, detected path or setup hint, and whether Sarah is using Auto or Manual selection.
+- Runtime cards now act as connectors, not just selectors: clicking Hermes opens Hermes Desktop when available or falls back to `hermes setup` in Terminal; clicking OpenClaw selects it, attempts `openclaw gateway start`, and falls back to terminal onboarding if needed.
+- OpenClaw readiness now matches the actual default execution path more closely: when `SARAH_OPENCLAW_GATEWAY_AGENT` is enabled, Sarah requires a configured and reachable OpenClaw gateway rather than only `openclaw whoami`.
+- First-run checklist now says `Agent runtime` instead of `OpenClaw agent`.
+- Local Tools registry now includes Hermes as an agent tool with install/setup/gateway signals.
+
+Verification:
+
+- `hermes --help`, `hermes --version`, `hermes status`, local launchd plist, and HermesDesktop connection files were inspected.
+- Targeted esbuild checks passed for `src/main/services/agent/agent.service.ts`, `src/main/services/clawdesk/settings.service.ts`, `src/main/services/local-tools/local-tools.service.ts`, `src/preload.ts`, and `src/renderer/mini-settings/index.ts`.
+- Targeted esbuild also passed for `src/renderer/menubar-popover/index.tsx`.
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `pnpm -s typecheck` and targeted ESLint still hung locally with no diagnostics and were terminated; this matches the existing local toolchain hang noted in prior entries.
+
+Known limitations / next steps:
+
+- Hermes integration currently uses CLI one-shot mode, not a native Hermes gateway API. This is good enough for first switching UX but may not preserve warm session behavior as well as OpenClaw gateway sessions.
+- The runtime switcher is in Mini Settings only. If a future full settings surface returns, reuse the same IPC and runtime selection data instead of adding a second store.
+- Manual visual validation still needs Sarah to be launched and Mini Settings opened so the runtime card can be checked in the real Electron window.
+
+## 2026-05-06 Answer Overlay Light Redesign
+
+User said the current answer overlay was still ugly, specifically rejecting the black/gold flavor and the strange transparent outer area around the panel. User asked to keep the current interaction model but redesign the visual style toward Hermes, Claude Code, or ChatGPT.
+
+- Design direction:
+  - Generated a new light visual reference with Image 2.0 at `/Users/chaosmac/.codex/generated_images/019de2eb-a507-7ff3-a21a-41583b72e482/ig_0d3a9c84893530a70169fb175da2488191ba6ce764071efc8d.png`.
+  - Moved away from dark grid and black/gold styling toward a clean Claude/ChatGPT-like warm stone surface.
+  - Removed decorative grid texture and gold accents; primary accent is now a quiet blue.
+- Visual changes:
+  - `agent-window.css` now makes the overlay fill the transparent Electron window (`100vw`/`100vh`) so the previous outer transparent gutter should no longer appear.
+  - Reworked the panel surface to a warm light translucent material with neutral borders, readable dark text, and softer native-macOS-style controls.
+  - Kept the existing follow-up interaction and action layout, but restyled buttons, status dots, follow-up composer, code blocks, and scroll affordance for the light theme.
+- Interaction copy:
+  - Replaced the hard-coded `Right Ctrl + Shift` follow-up hint with generic wording: the user's configured Command hotkey should be used for starting a new task from the frontmost app.
+
+Verification:
+
+- Targeted esbuild checks passed for `src/renderer/src/modules/agent/AgentWindow.tsx` and `src/main/windows/agent.ts`.
+- `git diff --check` passed for the touched answer-overlay files.
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `pnpm run install:app` completed successfully after rebuilding a corrupted `node_modules` directory that had again accumulated macOS ` 2` conflict-copy files.
+
+Known limitations / next steps:
+
+- Full `pnpm -s typecheck` again hung with no output and was terminated, matching prior local toolchain behavior.
+- Worktree already had unrelated dirty runtime-switcher and settings files before this UI pass; do not accidentally include those when committing only the overlay redesign.
+- User still needs to trigger an actual Command/Quick Ask to visually inspect the installed light overlay in context.
+
+## 2026-05-06 Context Acquisition and Feishu Workflow Prompt
+
+User reported that Sarah failed the simple workflow "整理当前 Codex 页面并保存到飞书": it told the user to take a screenshot or confirm broad steps instead of actively acquiring context. User clarified the expected interaction: web pages should be read through web-access first, non-web apps should be handled by screenshot recognition, and web-access failures should fall back to screenshot recognition.
+
+- Root cause:
+  - The OpenClaw gateway prompt was much weaker than the full agent prompt and did not enforce the page/screenshot fallback policy.
+  - The old wording still allowed the agent to ask the user for a URL, text body, or screenshot too early.
+  - If Sarah's answer overlay was visible and the user started another Command, context capture could identify Sarah itself as the frontmost app, producing context like `Sarah / ASR Status`.
+- Behavior changes:
+  - Added a shared context acquisition policy in `AgentService`:
+    - URL present: use web-access/browser first, then screenshot fallback.
+    - Browser with no URL: attempt current-tab/browser access, then screenshot fallback.
+    - Non-web app: analyze the captured screenshot directly.
+    - Ask the user for content only when URL, browser access, and screenshot are all unavailable.
+    - For Feishu/Obsidian/file writes, ask only for write authorization or target confirmation, not for manual screenshots or copied page content.
+  - Injected this policy into both `buildGatewayPrompt()` and the full `buildPrompt()` path.
+  - Updated the Feishu decision tree to treat Codex/CodePilot and other non-browser apps as screenshot-first contexts.
+  - `VoiceModeManager.startCommandMode()` now hides the Sarah answer overlay before context capture, waits briefly, then captures the underlying app context.
+- Installed app verification:
+  - `pnpm run install:app` completed successfully and relaunched `/Users/chaosmac/Applications/Sarah.app`.
+  - `codesign --verify --deep --strict --verbose=2 /Users/chaosmac/Applications/Sarah.app` passes.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- Targeted esbuild checks passed for `src/main/services/agent/agent.service.ts` and `src/main/services/push-to-talk/voice-mode-manager.ts`.
+- `git diff --check` passed for the touched prompt/context files.
+
+Known limitations / next steps:
+
+- The screenshot fallback depends on the downstream runtime's ability to inspect an image path. If OpenClaw/Hermes cannot actually read image files in its current toolset, add an explicit Sarah-side OCR/vision preprocessor before spawning the runtime.
+- The worktree already contains unrelated dirty runtime/UI/settings changes. Do not commit the entire dirty tree when saving only this prompt/context fix.
+
+## 2026-05-06 Commercial Polish: Tray, Hermes Tool Scope, Local CLI Clarity
+
+User said the current state is broadly good but found two commercial-readiness issues: clicking the menu bar icon opened both Sarah's custom popover and the native tray menu, and Hermes could answer identity questions but was slow/unclear when operating the computer or calling Feishu CLI.
+
+- Tray/menu fix:
+  - `main.ts` now keeps the native tray menu in memory instead of attaching it with `tray.setContextMenu()` on macOS.
+  - Left click opens only the custom Sarah popover.
+  - Right click hides the custom popover and manually opens the native diagnostics menu.
+  - This addresses the overlapping surfaces shown in the user's screenshots.
+- Hermes runtime tuning:
+  - Hermes is still launched through one-shot mode, but Sarah now passes an explicit toolset list.
+  - Default Hermes toolsets are optimized for faster read/write tasks: `web,terminal,file,vision,skills,todo,messaging`.
+  - Browser automation is enabled only when the instruction clearly asks for clicking, opening, filling, logging in, scrolling, or controlling a browser/page. This should reduce unnecessary Chrome automation for simple "整理当前页面/保存到飞书" tasks.
+  - Agent logs now include the selected runtime and Hermes toolsets.
+- Local Tools clarity:
+  - Local Tools summary now includes exact binary paths in the agent context.
+  - Feishu/Lark detection now exposes the concrete `/opt/homebrew/bin/lark-cli` path and uses correct command families: `docs`, `drive`, `wiki`, and `im`.
+  - The prompt now explicitly says the Feishu CLI is usually `lark-cli`, not `lark` or `feishu`, and tells the runtime to use the exact detected binary path.
+  - Added prompt guidance to prefer API/CLI/text extraction before slow GUI/browser automation.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- Targeted esbuild checks passed for `src/main.ts`, `src/main/services/agent/agent.service.ts`, and `src/main/services/local-tools/local-tools.service.ts`.
+- `git diff --check` passed for the touched files.
+- `pnpm run install:app` completed successfully, relaunched `/Users/chaosmac/Applications/Sarah.app`, and `codesign --verify --deep --strict --verbose=2` passes.
+
+Known limitations / next steps:
+
+- Hermes one-shot mode still returns final output only; Sarah cannot show true step-by-step Hermes tool progress unless Hermes exposes streaming/tool events or Sarah switches to a different Hermes integration surface.
+- For a polished commercial release, add a runtime progress surface that distinguishes "reading page", "running CLI", "waiting for authorization", and "writing to destination" instead of showing a generic thinking state.
+
+## 2026-05-08 Autonomous Review and Debug Loop
+
+User asked for autonomous review/debug cycles until no reproducible bugs remained.
+
+- Started from Trellis workflow/context, read frontend/backend/cross-layer guidelines, and inspected the existing dirty worktree without reverting prior user/agent changes.
+- Found one failing test in `AgentService`: the ENOENT assertion still expected the old lowercase `openclaw CLI 未找到` message after the runtime-aware OpenClaw/Hermes error text changed.
+- Fixed the test to assert the new runtime-aware OpenClaw error and Settings-switch guidance.
+- Found and fixed a real abort race introduced by async runtime resolution: if `abort()` happened after `execute()` marked the service running but before the runtime process was spawned, the old run could still spawn. `AgentService` now checks `runVersion` and `running` immediately after runtime resolution and exits before spawning stale runs.
+- Added a regression test covering abort during runtime resolution so future runtime-selection changes do not reintroduce that stale-spawn path.
+- Updated Mini Settings health copy to be runtime-neutral: users are told to connect Hermes or OpenClaw instead of only OpenClaw.
+
+Verification:
+
+- `pnpm -s test` passed 43/43 tests.
+- `pnpm -s typecheck` passed.
+- `pnpm -s lint` passed.
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `git diff --check` passed.
+- Vite production builds passed for main/preload-equivalent configs plus renderer, floating, mini settings, and menubar popover entries. Existing Vite CJS/lucide `"use client"` warnings are dependency/build warnings, not failures.
+- `pnpm run install:app` completed successfully, packaged, signed, installed, and relaunched `/Users/chaosmac/Applications/Sarah.app`.
+
+Known limitations / next steps:
+
+- Manual in-app validation is still useful for visual behavior: open Mini Settings, click Hermes/OpenClaw runtime cards, and trigger Command/Quick Ask from a frontmost app.
+- Hermes integration still uses one-shot final output only; progress/streaming remains a product improvement rather than a local test failure.
+
+## 2026-05-09 Gateway Streaming and First-Run Onboarding
+
+User asked whether the remaining TODOs were still open: Hermes only had one-shot final output/no progress, first-run onboarding was not formal enough, `~/.feishu-agent` had migrated to `~/.sarah`, and Sarah still needed a real streaming Gateway WebSocket client instead of a CLI wrapper. User then asked to implement, review, and debug.
+
+- Status confirmed:
+  - `~/.feishu-agent -> ~/.sarah` migration was already implemented in `MemoryService.ensureDirectories()`.
+  - First-run onboarding was still basic and lacked a focused Gateway/demo step.
+  - OpenClaw execution still used `openclaw gateway call agent --expect-final`, so it waited for a final CLI result.
+  - Hermes still has no confirmed local streaming agent WebSocket API in the inspected CLI; Sarah keeps Hermes as a CLI fallback and labels it honestly.
+- Gateway streaming implementation:
+  - Added `src/main/services/agent/openclaw-gateway-client.ts`, a native WebSocket client for the local OpenClaw Gateway.
+  - The client reads `~/.openclaw/openclaw.json`, connects to `ws://127.0.0.1:<gateway-port>`, performs the protocol v3 `connect` handshake with `tool-events`, sends `agent` requests, ignores the initial `accepted` response, and waits for the final response.
+  - `agent` event `stream:"assistant"` deltas are forwarded immediately to Sarah's answer overlay.
+  - Non-assistant Gateway streams are forwarded as `tool_use` progress chunks so the UI can show lifecycle/tool progress without appending it to the answer text.
+  - Abort now sends `sessions.abort` over the same WebSocket protocol instead of spawning `openclaw gateway call`.
+  - `SARAH_OPENCLAW_WS_AGENT=0` is available as a fallback to the old CLI wrapper path for debugging.
+- UI/onboarding:
+  - Answer overlay now tracks progress text from `tool_use` chunks (`Connecting`, accepted, tool/lifecycle updates) separately from final answer content.
+  - Hermes runs now emit an explicit `Starting Hermes CLI fallback` progress chunk, but still do not claim native token/tool streaming.
+  - First-run welcome checklist now includes microphone, Accessibility, Input Monitoring, speech provider, agent runtime, Gateway check, and local tools.
+  - Welcome card now includes demo actions for Dictate, Command, and rerunning checks.
+  - Local Tools now describes OpenClaw agent capability as Gateway WebSocket streaming; Hermes is described as a CLI fallback.
+- Review/debug follow-up:
+  - Tightened Gateway event filtering by using the request `idempotencyKey` as the initial run id and updating it from the `accepted` response, preventing stale events from another run from leaking into the UI.
+  - Added a regression test proving OpenClaw Gateway WebSocket deltas stream without spawning the CLI wrapper.
+
+Verification:
+
+- `pnpm typecheck` passed.
+- `pnpm test` passed 44/44 tests.
+- `pnpm lint` passed.
+- Initial `pnpm verify:mini` failed only because packaged output was missing; ran `pnpm package`, then `pnpm verify:mini` passed 87/87 checks.
+
+Known limitations / next steps:
+
+- Hermes remains a CLI fallback (`hermes --oneshot`) because no native local streaming Hermes agent API was confirmed. If Hermes exposes one later, add a Hermes-specific streaming transport behind the same `AgentService` chunk contract.
+- Manual visual validation is still useful: open Mini Settings on a fresh profile state, confirm the welcome checklist/demo layout, then trigger Command/Quick Ask and confirm progress text appears before/during streamed OpenClaw output.
+
+## 2026-05-09 README Product Screenshots
+
+User asked whether Sarah can manipulate the local computer to test the project, capture screenshots, and add product-relevant README images for the recording flow, Command mode, and Quick Ask mode.
+
+- Added a repeatable screenshot harness:
+  - `scripts/capture-readme-screenshots.cjs` launches Electron against the built `.vite` renderer output.
+  - It uses the real preload/React/CSS bundles and mock IPC payloads to render deterministic README states without requiring live microphone input or capturing the user's desktop.
+  - Added `pnpm screenshots:readme`.
+- Generated PNG assets in `docs/images/`:
+  - `product-recording.png` — recording HUD with waveform/cancel/confirm.
+  - `product-command.png` — Command mode answer overlay with current-app context and Feishu-oriented action copy.
+  - `product-quick-ask.png` — Quick Ask answer overlay.
+  - `product-onboarding.png` — first-run onboarding with permission/runtime/Gateway/demo checks.
+- README updates:
+  - Replaced the old "What it looks like" section with a product walkthrough.
+  - Added first-run onboarding, Dictation/recording, Command mode, Quick Ask mode, and retained menubar/control-center references.
+  - Documented `SARAH_OPENCLAW_WS_AGENT`.
+- Debug fixes found while generating screenshots:
+  - Mini Settings now tolerates missing optional display strings in `escapeHtml()`, gateway URL labels, runtime detail labels, and local tool health labels instead of throwing during render.
+  - Mini Settings health/hotkey copy now truncates cleanly inside compact cards instead of overflowing the panel.
+
+Verification:
+
+- `pnpm package` passed and regenerated the renderer bundles used by the screenshot harness.
+- `pnpm screenshots:readme` passed and wrote all four PNG files.
+- `pnpm typecheck` passed.
+- `pnpm test` passed 44/44 tests.
+- `pnpm lint` passed.
+- `pnpm verify:mini` passed 87/87 checks.
+
+Known limitations / next steps:
+
+- The screenshot harness intentionally uses deterministic mock IPC payloads. It is suitable for README images and renderer regression smoke coverage, but it does not replace one manual microphone hotkey pass on a freshly installed app.

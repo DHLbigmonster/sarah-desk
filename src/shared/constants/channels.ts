@@ -117,6 +117,12 @@ export const IPC_CHANNELS = {
     CONFIG_DELETE_PROVIDER_KEY: 'claw-desk:config-delete-provider-key',
     /** Get Open Claw installation and auth status */
     GET_OPENCLAW_STATUS: 'claw-desk:get-openclaw-status',
+    /** Get selectable agent runtimes and current runtime choice */
+    GET_AGENT_RUNTIME_SELECTION: 'claw-desk:get-agent-runtime-selection',
+    /** Persist selected agent runtime */
+    SET_AGENT_RUNTIME: 'claw-desk:set-agent-runtime',
+    /** Select a runtime and open/start the next setup step if needed */
+    CONNECT_AGENT_RUNTIME: 'claw-desk:connect-agent-runtime',
   },
   LOCAL_TOOLS: {
     /** Detect local tools, auth state, safe capabilities, and setup gaps */

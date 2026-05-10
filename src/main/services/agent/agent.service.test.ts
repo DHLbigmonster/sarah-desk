@@ -52,8 +52,14 @@ vi.mock('./memory.service', () => ({
   },
 }));
 
+vi.mock('./openclaw-gateway-client', () => ({
+  runOpenClawGatewayAgent: vi.fn(),
+  abortOpenClawGatewayRun: vi.fn(),
+}));
+
 import { spawn } from 'node:child_process';
 import { AgentService } from './agent.service';
+import { runOpenClawGatewayAgent } from './openclaw-gateway-client';
 
 interface MockProcess extends EventEmitter {
   stdout: EventEmitter;
@@ -93,11 +99,13 @@ describe('AgentService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    process.env.SARAH_OPENCLAW_WS_AGENT = '0';
     service = new AgentService();
   });
 
   afterEach(() => {
     service.abort(false);
+    delete process.env.SARAH_OPENCLAW_WS_AGENT;
   });
 
   it('should emit error when openclaw binary is not found (ENOENT)', async () => {
@@ -118,7 +126,8 @@ describe('AgentService', () => {
     await service.execute('test instruction', FAKE_CONTEXT);
 
     expect(errors).toHaveLength(1);
-    expect(errors[0]).toContain('openclaw CLI 未找到');
+    expect(errors[0]).toContain('OpenClaw CLI 未找到');
+    expect(errors[0]).toContain('Settings 切换运行时');
   });
 
   it('should emit done with parsed text on successful execution', async () => {
@@ -140,6 +149,28 @@ describe('AgentService', () => {
     await service.execute('test instruction', FAKE_CONTEXT);
 
     expect(chunks.join('')).toBe('Hello from OpenClaw');
+    expect(done).toBe(true);
+  });
+
+  it('should stream OpenClaw Gateway WebSocket deltas without spawning the CLI wrapper', async () => {
+    process.env.SARAH_OPENCLAW_WS_AGENT = '1';
+    (runOpenClawGatewayAgent as unknown as ReturnType<typeof vi.fn>).mockImplementation(async ({ onText, onProgress }) => {
+      onProgress('Gateway accepted the run', 'OpenClaw Gateway');
+      onText('streamed ');
+      onText('answer');
+      return { text: 'streamed answer' };
+    });
+
+    const chunks: Array<{ type: string; text?: string; toolName?: string }> = [];
+    let done = false;
+    service.on('chunk', (chunk) => chunks.push(chunk));
+    service.on('done', () => { done = true; });
+
+    await service.execute('test instruction', FAKE_CONTEXT);
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(chunks.filter((chunk) => chunk.type === 'text').map((chunk) => chunk.text).join('')).toBe('streamed answer');
+    expect(chunks.some((chunk) => chunk.type === 'tool_use' && chunk.toolName === 'OpenClaw Gateway')).toBe(true);
     expect(done).toBe(true);
   });
 
@@ -240,5 +271,16 @@ describe('AgentService', () => {
     // Clean up: force resolve the hanging promise
     proc.emit('close', null);
     await execPromise;
+  });
+
+  it('should not spawn after aborting during runtime resolution', async () => {
+    (spawn as unknown as ReturnType<typeof vi.fn>).mockClear();
+
+    const execPromise = service.execute('test', FAKE_CONTEXT);
+    service.abort(false);
+    await execPromise;
+
+    expect(spawn).not.toHaveBeenCalled();
+    expect(service.isRunning).toBe(false);
   });
 });

@@ -79,6 +79,7 @@ export function AgentWindow(): ReactNode {
   const [followUpOpen, setFollowUpOpen] = useState(false);
   const [followUpText, setFollowUpText] = useState('');
   const [isRecordingFollowUp, setIsRecordingFollowUp] = useState(false);
+  const [progressText, setProgressText] = useState('正在思考…');
 
   const streamingIdRef = useRef<string | null>(null);
   const firstChunkNotifiedRef = useRef(false);
@@ -105,6 +106,7 @@ export function AgentWindow(): ReactNode {
   const handleAbort = useCallback(() => {
     void window.api.agent.abort();
     setIsStreaming(false);
+    setProgressText('已停止');
     streamingIdRef.current = null;
   }, []);
 
@@ -122,6 +124,7 @@ export function AgentWindow(): ReactNode {
     setMessages([userMsg, assistantMsg]);
     setIsStreaming(true);
     setCopied(false);
+    setProgressText('正在思考…');
     streamingIdRef.current = assistantMsg.id;
     firstChunkNotifiedRef.current = false;
   }, [messages, context]);
@@ -148,6 +151,7 @@ export function AgentWindow(): ReactNode {
     setMessages((prev) => [...prev, userMsg, assistantMsg]);
     setIsStreaming(true);
     setCopied(false);
+    setProgressText('正在思考…');
     setFollowUpText('');
     setFollowUpOpen(false);
     streamingIdRef.current = assistantMsg.id;
@@ -211,6 +215,7 @@ export function AgentWindow(): ReactNode {
       setFollowUpOpen(false);
       setFollowUpText('');
       setIsRecordingFollowUp(false);
+      setProgressText('正在思考…');
       if (streamingIdRef.current) {
         streamingIdRef.current = null;
       }
@@ -218,12 +223,19 @@ export function AgentWindow(): ReactNode {
     });
 
     const unsubChunk = window.api.agent.onStreamChunk((chunk) => {
-      if (!streamingIdRef.current || !chunk.text) return;
+      if (!streamingIdRef.current) return;
+      if (chunk.type === 'tool_use') {
+        const label = chunk.text || (chunk.toolName ? `正在使用 ${chunk.toolName}` : '正在调用工具…');
+        setProgressText(label);
+        return;
+      }
+      if (!chunk.text) return;
       const activeId = streamingIdRef.current;
       if (!firstChunkNotifiedRef.current) {
         firstChunkNotifiedRef.current = true;
         window.api.agent.notifyFirstChunkVisible();
       }
+      setProgressText('正在输出…');
       setMessages((prev) =>
         prev.map((message) =>
           message.id === activeId
@@ -235,6 +247,7 @@ export function AgentWindow(): ReactNode {
 
     const unsubDone = window.api.agent.onStreamDone(() => {
       setIsStreaming(false);
+      setProgressText('就绪');
       if (!streamingIdRef.current) return;
       const activeId = streamingIdRef.current;
       setMessages((prev) =>
@@ -247,6 +260,7 @@ export function AgentWindow(): ReactNode {
 
     const unsubError = window.api.agent.onStreamError((error) => {
       setIsStreaming(false);
+      setProgressText('出错');
       if (!streamingIdRef.current) return;
       const activeId = streamingIdRef.current;
       setMessages((prev) =>
@@ -285,6 +299,7 @@ export function AgentWindow(): ReactNode {
       setFollowUpOpen(false);
       setFollowUpText('');
       setIsRecordingFollowUp(false);
+      setProgressText('正在思考…');
       streamingIdRef.current = assistantMessage.id;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -314,6 +329,7 @@ export function AgentWindow(): ReactNode {
       setFollowUpOpen(false);
       setFollowUpText('');
       setIsRecordingFollowUp(false);
+      setProgressText('就绪');
       streamingIdRef.current = null;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -378,7 +394,7 @@ export function AgentWindow(): ReactNode {
   }, [isStreaming]);
 
   const statusState = isStreaming ? 'thinking' : 'done';
-  const statusLabel = isStreaming ? '思考中' : '就绪';
+  const statusLabel = isStreaming ? progressText : '就绪';
 
   return (
     <div className="agent-window">
@@ -422,7 +438,7 @@ export function AgentWindow(): ReactNode {
 
         <div className="agent-window__answer-body" ref={answerBodyRef} aria-live="polite" aria-atomic="false">
           {showThinking ? (
-            <ThinkingState />
+            <ThinkingState label={progressText} />
           ) : (
             <div className="agent-window__answer-text">
               <ReactMarkdown
@@ -553,7 +569,7 @@ export function AgentWindow(): ReactNode {
             </button>
           </div>
           <div className="agent-window__followup-hint">
-            这是当前答案的追问。右 Ctrl + Shift 更适合从前台 App 发起新的 Command。
+            这是当前答案的追问。你设置的 Command 快捷键更适合从前台 App 发起新任务。
           </div>
         </div>
       )}
@@ -561,13 +577,13 @@ export function AgentWindow(): ReactNode {
   );
 }
 
-function ThinkingState(): ReactNode {
+function ThinkingState({ label }: { label: string }): ReactNode {
   return (
     <div className="agent-window__thinking">
       <span className="agent-window__thinking-dot" />
       <span className="agent-window__thinking-dot" />
       <span className="agent-window__thinking-dot" />
-      <span className="agent-window__thinking-text">正在思考…</span>
+      <span className="agent-window__thinking-text">{label}</span>
     </div>
   );
 }

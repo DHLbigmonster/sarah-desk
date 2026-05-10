@@ -11,6 +11,8 @@ import type {
 import {
   SAFE_TRIGGER_KEYS,
   VOICE_TRIGGER_KEY_LABELS,
+  type AgentRuntimeId,
+  type AgentRuntimeStatus,
   type HotkeyConfig,
   type VoiceTriggerKey,
 } from '../../shared/types/clawdesk-settings';
@@ -25,8 +27,8 @@ if (!rootElement) {
 const root = rootElement;
 let notice: { tone: 'ok' | 'warn' | 'error'; message: string } | null = null;
 
-function escapeHtml(value: string): string {
-  return value
+function escapeHtml(value: string | null | undefined): string {
+  return (value ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -110,6 +112,56 @@ function hotkeyPicker(config: HotkeyConfig, disabled: boolean): string {
   `;
 }
 
+function runtimeTone(runtime: AgentRuntimeStatus): 'ok' | 'warn' | 'error' {
+  if (runtime.ready) return 'ok';
+  return runtime.installed ? 'warn' : 'error';
+}
+
+function runtimeCard(status: MiniStatus): string {
+  const buttons = status.agent.runtimes.map((runtime) => {
+    const selected = status.agent.effectiveRuntime === runtime.id;
+    const tone = runtimeTone(runtime);
+    const state = runtime.ready ? 'Ready' : runtime.installed ? 'Setup' : 'Missing';
+    const action = selected && runtime.ready ? 'Using' : runtime.ready ? 'Use' : runtime.installed ? 'Setup' : 'Install';
+    return `
+      <button
+        class="runtime-option ${selected ? 'selected' : ''}"
+        type="button"
+        data-runtime-id="${escapeHtml(runtime.id)}"
+        title="${escapeHtml(runtime.detail)}"
+      >
+        <span class="runtime-top">
+          <span class="status-dot ${tone}"></span>
+          <span class="runtime-name">${escapeHtml(runtime.name)}</span>
+          <span class="runtime-state ${tone}">${escapeHtml(state)}</span>
+        </span>
+        <span class="runtime-bottom">
+          <span class="runtime-detail">${escapeHtml(runtime.path ? runtime.path.replace(/^\/Users\/[^/]+/, '~') : runtime.setupHint ?? runtime.detail ?? 'Not configured')}</span>
+          <span class="runtime-action">${escapeHtml(action)}</span>
+        </span>
+      </button>
+    `;
+  }).join('');
+  const active = status.agent.runtimes.find((runtime) => runtime.id === status.agent.effectiveRuntime);
+  const detail = active?.ready
+    ? `${active.name} will answer Command and Quick Ask.`
+    : 'Pick an installed runtime, then finish its setup if needed.';
+
+  return `
+    <section class="runtime-card">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">Agent Runtime</span>
+          <h2>${escapeHtml(active?.name ?? 'Choose runtime')}</h2>
+        </div>
+        <span class="section-detail ${active?.ready ? 'ok' : 'warn'}">${escapeHtml(status.agent.selectedRuntime ? 'Manual' : 'Auto')}</span>
+      </div>
+      <p class="section-copy">${escapeHtml(detail)}</p>
+      <div class="runtime-switcher">${buttons}</div>
+    </section>
+  `;
+}
+
 function localToolTone(health: LocalToolHealth): string {
   switch (health) {
     case 'ready':
@@ -157,13 +209,14 @@ function renderCapabilities(tool: LocalToolStatus): string {
 function renderLocalTool(tool: LocalToolStatus): string {
   const tone = localToolTone(tool.health);
   const pathLabel = tool.path ? tool.path.replace(/^\/Users\/[^/]+/, '~') : (tool.setupHint ?? 'Not configured');
+  const healthLabel = tool.health ? tool.health.replace('_', ' ') : 'unknown';
   return `
     <div class="tool-row">
       <span class="status-dot ${tone}"></span>
       <div class="tool-body">
         <div class="tool-main">
           <span class="tool-name">${escapeHtml(tool.name)}</span>
-          <span class="tool-state ${tone}">${escapeHtml(tool.health.replace('_', ' '))}</span>
+          <span class="tool-state ${tone}">${escapeHtml(healthLabel)}</span>
         </div>
         <span class="tool-detail">${escapeHtml(tool.detail)}</span>
         <div class="tool-chips">${renderCapabilities(tool)}</div>
@@ -222,6 +275,10 @@ function gatewayStateClass(state: string): string {
   }
 }
 
+function gatewayUrlLabel(status: MiniStatus): string {
+  return (status.gateway.url || status.gateway.detail || 'Gateway unavailable').replace(/^https?:\/\//, '');
+}
+
 function providerStateClass(configured: boolean): string {
   return configured ? 'ok' : 'warn';
 }
@@ -238,7 +295,7 @@ function healthSummary(status: MiniStatus, missingPerms: string[], recorderReady
     return {
       tone: 'error',
       label: 'Agent unavailable',
-      detail: 'OpenClaw is not installed or not on PATH',
+      detail: 'Connect Hermes or OpenClaw before using Command / Quick Ask',
     };
   }
   if (!recorderReady) {
@@ -292,12 +349,28 @@ function buildWelcomeChecklist(status: MiniStatus, localTools: LocalToolsSnapsho
       done: true,
     },
     {
-      label: 'OpenClaw agent',
+      label: 'Agent runtime',
       detail: status.agent.available
-        ? 'Ready for Command and Quick Ask'
-        : 'Optional · Dictation works without it',
+        ? `${status.agent.effectiveRuntime === 'hermes' ? 'Hermes' : 'OpenClaw'} ready for Command and Quick Ask`
+        : 'Connect Hermes or OpenClaw for Command and Quick Ask',
       tone: status.agent.available ? 'ok' : 'warn',
       done: status.agent.available,
+    },
+    {
+      label: 'Gateway check',
+      detail: status.agent.effectiveRuntime === 'openclaw'
+        ? status.gateway.state === 'connected'
+          ? `Connected at ${gatewayUrlLabel(status)}`
+          : status.gateway.detail || 'Start OpenClaw Gateway for streaming responses'
+        : status.agent.effectiveRuntime === 'hermes'
+          ? 'Hermes is configured; Sarah uses CLI fallback until Hermes exposes a local streaming agent API'
+          : 'Choose a runtime before checking Gateway streaming',
+      tone: status.agent.effectiveRuntime === 'hermes'
+        ? 'ok'
+        : status.gateway.state === 'connected'
+          ? 'ok'
+          : 'warn',
+      done: status.agent.effectiveRuntime === 'hermes' || status.gateway.state === 'connected',
     },
     {
       label: 'Local tools',
@@ -325,6 +398,35 @@ function welcomeCard(status: MiniStatus, localTools: LocalToolsSnapshot): string
       `,
     )
     .join('');
+  const demoItems = [
+    {
+      id: 'welcome-demo-dictate',
+      title: 'Dictate',
+      copy: `${hotkeyLabel(status.hotkeys.hotkeyConfig)} records text and inserts it into the focused app.`,
+      action: 'Try Dictate',
+    },
+    {
+      id: 'welcome-demo-command',
+      title: 'Command',
+      copy: `${hotkeyLabel(status.hotkeys.hotkeyConfig)} + Shift sends the current screen to the agent.`,
+      action: 'Try Command',
+    },
+    {
+      id: 'welcome-demo-refresh',
+      title: 'Verify',
+      copy: 'Refresh reruns microphone, permission, runtime, Gateway, and local tool checks.',
+      action: 'Run Checks',
+    },
+  ];
+  const demoHtml = demoItems
+    .map((item) => `
+      <button id="${item.id}" class="welcome-demo" type="button">
+        <span class="welcome-demo-title">${escapeHtml(item.title)}</span>
+        <span class="welcome-demo-copy">${escapeHtml(item.copy)}</span>
+        <span class="welcome-demo-action">${escapeHtml(item.action)}</span>
+      </button>
+    `)
+    .join('');
   return `
     <section class="welcome-card">
       <div class="section-heading">
@@ -336,6 +438,7 @@ function welcomeCard(status: MiniStatus, localTools: LocalToolsSnapshot): string
       </div>
       <p class="section-copy">Sarah is your voice control center. Grant the system permissions below, then you can dictate, command, or ask anywhere on macOS.</p>
       <ul class="welcome-list">${itemsHtml}</ul>
+      <div class="welcome-demo-grid">${demoHtml}</div>
       <div class="welcome-actions">
         <button id="welcome-permissions" class="utility-action" type="button">Open System Settings</button>
         <button id="welcome-done" class="primary-action" type="button">${escapeHtml(ctaLabel)}</button>
@@ -436,6 +539,7 @@ function render(status: MiniStatus, localTools: LocalToolsSnapshot, summaries: D
       ${renderNotice()}
       ${status.onboarding.showWelcome ? welcomeCard(status, localTools) : ''}
       ${summaryCard(summaries)}
+      ${runtimeCard(status)}
       ${hotkeyPicker(status.hotkeys.hotkeyConfig, hotkeyDisabled)}
       ${localToolsCard(localTools)}
 
@@ -447,10 +551,10 @@ function render(status: MiniStatus, localTools: LocalToolsSnapshot, summaries: D
       </div>
 
       <div class="status-list">
-        ${statusRow('Gateway', status.gateway.state, status.gateway.url.replace(/^https?:\/\//, ''), gatewayStateClass(status.gateway.state))}
+        ${statusRow('Gateway', status.gateway.state, gatewayUrlLabel(status), gatewayStateClass(status.gateway.state))}
         ${statusRow('Speech', status.asrProvider.name, status.asrProvider.configured ? 'Cloud' : 'Local', providerStateClass(status.asrProvider.configured))}
         ${statusRow('Refinement', status.refinementProvider.name, status.refinementProvider.configured ? 'Model' : 'Fallback', providerStateClass(status.refinementProvider.configured))}
-        ${statusRow('Agent', status.agent.available ? 'OpenClaw' : 'Not found', status.agent.available ? 'Ready' : 'Install', status.agent.available ? 'ok' : 'error')}
+        ${statusRow('Agent', status.agent.effectiveRuntime ? (status.agent.effectiveRuntime === 'hermes' ? 'Hermes' : 'OpenClaw') : 'Not found', status.agent.available ? 'Ready' : 'Install', status.agent.available ? 'ok' : 'error')}
         ${statusRow('Recorder', recorderReady ? 'Ready' : 'Loading', status.recorder.asrStatus, recorderReady ? 'ok' : 'warn')}
       </div>
 
@@ -492,12 +596,31 @@ function render(status: MiniStatus, localTools: LocalToolsSnapshot, summaries: D
   document.getElementById('welcome-done')?.addEventListener('click', () => {
     void completeWelcome();
   });
+  document.getElementById('welcome-demo-dictate')?.addEventListener('click', () => {
+    void window.api.mini.toggleDictation();
+    setTimeout(() => void load(), 250);
+  });
+  document.getElementById('welcome-demo-command')?.addEventListener('click', () => {
+    void window.api.mini.toggleCommand();
+    setTimeout(() => void load(), 250);
+  });
+  document.getElementById('welcome-demo-refresh')?.addEventListener('click', () => {
+    void load();
+  });
 
   document.querySelectorAll<HTMLButtonElement>('[data-trigger-key]').forEach((button) => {
     button.addEventListener('click', () => {
       const key = button.dataset.triggerKey as VoiceTriggerKey | undefined;
       if (!key || key === status.hotkeys.hotkeyConfig.voiceTriggerKey) return;
       void saveTriggerKey(status.hotkeys.hotkeyConfig, key);
+    });
+  });
+
+  document.querySelectorAll<HTMLButtonElement>('[data-runtime-id]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const runtimeId = button.dataset.runtimeId as AgentRuntimeId | undefined;
+      if (!runtimeId) return;
+      void connectAgentRuntime(runtimeId);
     });
   });
 
@@ -607,6 +730,26 @@ async function saveTriggerKey(currentConfig: HotkeyConfig, key: VoiceTriggerKey)
       return;
     }
     notice = { tone: 'ok', message: `Trigger key changed to ${VOICE_TRIGGER_KEY_LABELS[key]}.` };
+    await load();
+  } catch (error) {
+    notice = {
+      tone: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    };
+    await load();
+  }
+}
+
+async function connectAgentRuntime(runtimeId: AgentRuntimeId): Promise<void> {
+  notice = null;
+  try {
+    const result = await window.api.clawDesk.connectAgentRuntime(runtimeId);
+    const selection = result.selection;
+    const runtime = selection.runtimes.find((item) => item.id === runtimeId);
+    notice = {
+      tone: result.success ? 'ok' : 'warn',
+      message: result.detail || `${runtime?.name ?? runtimeId} selected${runtime?.ready ? '.' : '. Finish setup before using Command / Quick Ask.'}`,
+    };
     await load();
   } catch (error) {
     notice = {

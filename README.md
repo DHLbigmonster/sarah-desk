@@ -28,39 +28,48 @@ Pick a single trigger key. Sarah derives the other two modes from modifiers. Def
 
 ---
 
-## What it looks like
+## Product Walkthrough
 
-### Menubar popover — Sarah's home
-
-<p align="center">
-  <img src="docs/images/menubar-popover.svg" alt="Sarah menubar popover with status, mode, and runtime indicators" width="380"/>
-</p>
-
-Click the Sarah icon in the menu bar. Status, mode, and runtime show at a glance. Two big buttons start a Dictation or Command run. Right-click for the legacy diagnostic menu.
-
-### Floating HUD — live waveform
+### First-run onboarding
 
 <p align="center">
-  <img src="docs/images/floating-hud.svg" alt="Sarah floating HUD waveform — recording state" width="600"/>
+  <img src="docs/images/product-onboarding.png" alt="Sarah first-run onboarding with microphone, permissions, gateway, runtime, and demo checks" width="420"/>
 </p>
 
-A tiny capsule (150×40 px) appears near the top center while you're holding a recording. Real-time waveform from the mic, mode-color border, cancel button. Disappears when you stop. Stays out of your way the rest of the time.
+The first screen walks through the checks that matter before a user trusts a desktop voice assistant: Microphone, Accessibility, Input Monitoring, speech provider, agent runtime, OpenClaw Gateway, and local tools. The demo buttons let users try Dictation, Command, or rerun checks without hunting through settings.
 
-### Answer overlay — streaming response
+### 1. Dictation / recording
 
 <p align="center">
-  <img src="docs/images/answer-overlay.svg" alt="Sarah answer overlay with streaming markdown response and follow-up bar" width="100%"/>
+  <img src="docs/images/product-recording.png" alt="Sarah recording HUD with cancel, live waveform, and confirm actions" width="600"/>
 </p>
 
-Quick Ask and Command results land here. Markdown rendering with code highlighting, streaming Stop button while the answer is in flight, then `Retry`, `Copy`, `继续追问` after it finishes. Press Esc to dismiss; Cmd/Ctrl+C copies the whole answer when nothing is selected.
+A tiny HUD appears while recording. The waveform is driven by live microphone level, the left action cancels the turn, and the right action confirms. In Dictation mode Sarah transcribes, optionally polishes the sentence, and inserts the final text directly into the focused app.
 
-### Mini Settings — control center
+### 2. Command mode
 
 <p align="center">
-  <img src="docs/images/mini-settings.svg" alt="Sarah Mini Settings control center with health summary and core service cards" width="420"/>
+  <img src="docs/images/product-command.png" alt="Sarah Command mode answer overlay summarizing a current app task and preparing a Feishu write" width="100%"/>
 </p>
 
-The 420×600 control panel that doubles as a doctor. Health summary on top, four core service cards (Speech / Refinement / Agent / Recorder), then the hotkey deck and quick actions. Refresh, Logs, Fix Permissions, Quit — that's the entire surface.
+Command mode captures the current app, window title, URL when available, and screenshot path before Sarah's own UI appears. The agent uses that context to act on the thing you were looking at: summarize a page, prepare a Feishu write, call local CLIs, or continue through the OpenClaw Gateway. Tool/lifecycle progress is shown separately from the final answer so the response stays clean.
+
+### 3. Quick Ask mode
+
+<p align="center">
+  <img src="docs/images/product-quick-ask.png" alt="Sarah Quick Ask overlay answering a question about the current page" width="100%"/>
+</p>
+
+Quick Ask is for lightweight questions about the current screen. It uses the same answer overlay as Command mode, with Markdown rendering, copy, retry, and follow-up. With OpenClaw Gateway connected, answer deltas stream into the overlay instead of waiting for a one-shot final result.
+
+### Menubar popover and control center
+
+<p align="center">
+  <img src="docs/images/menubar-popover.svg" alt="Sarah menubar popover with status, mode, and runtime indicators" width="360"/>
+  <img src="docs/images/mini-settings.svg" alt="Sarah Mini Settings control center with health summary and core service cards" width="360"/>
+</p>
+
+Click the Sarah icon in the menu bar for the compact home surface. Mini Settings is the deeper control center for permissions, runtime switching, hotkeys, local tools, logs, and first-run recovery.
 
 ---
 
@@ -175,6 +184,7 @@ Sarah reads `~/.openclaw/openclaw.json`, finds the configured port + token, and 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `SARAH_OPENCLAW_GATEWAY_AGENT` | `true` | Use Gateway path instead of subprocess CLI |
+| `SARAH_OPENCLAW_WS_AGENT` | `true` | Use the native Gateway WebSocket client for streaming deltas and tool progress |
 | `SARAH_OPENCLAW_AGENT_ID` | `main` | OpenClaw agent id |
 | `SARAH_OPENCLAW_THINKING` | `off` | Thinking level for short turns |
 | `SARAH_OPENCLAW_PROMPT_MODE` | `minimal` | `minimal` / `full` / `none` |

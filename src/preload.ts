@@ -24,6 +24,9 @@ import type {
   ClawDeskSkillDetail,
   ClawDeskSettingsOverview,
   ClawDeskThemeMode,
+  AgentRuntimeId,
+  AgentRuntimeConnectResult,
+  AgentRuntimeSelection,
   HotkeyConfig,
   HotkeyCheckResult,
   OpenClawStatus,
@@ -340,6 +343,15 @@ const clawDeskApi: ClawDeskApi = {
 
   getOpenClawStatus: (): Promise<OpenClawStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_OPENCLAW_STATUS),
+
+  getAgentRuntimeSelection: (): Promise<AgentRuntimeSelection> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_AGENT_RUNTIME_SELECTION),
+
+  setAgentRuntime: (runtimeId: AgentRuntimeId): Promise<AgentRuntimeSelection> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.SET_AGENT_RUNTIME, runtimeId),
+
+  connectAgentRuntime: (runtimeId: AgentRuntimeId): Promise<AgentRuntimeConnectResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.CONNECT_AGENT_RUNTIME, runtimeId),
 };
 
 const localToolsApi: LocalToolsApi = {
