@@ -112,8 +112,8 @@ export function resolveArkConfig(): LightweightRefinementConfig | null {
     apiKey,
     baseUrl: resolve('DICTATION_REFINEMENT_BASE_URL')?.trim() || DEFAULT_BASE_URL,
     targetModel,
-    timeoutMs: parseInteger(resolve('DICTATION_REFINEMENT_TIMEOUT_MS'), 4500),
-    maxTokens: parseInteger(resolve('DICTATION_REFINEMENT_MAX_TOKENS'), 220),
+    timeoutMs: parseInteger(resolve('DICTATION_REFINEMENT_TIMEOUT_MS'), 7000),
+    maxTokens: parseInteger(resolve('DICTATION_REFINEMENT_MAX_TOKENS'), 500),
     temperature: parseFloatNumber(resolve('DICTATION_REFINEMENT_TEMPERATURE'), 0.2),
   };
 }

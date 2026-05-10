@@ -5,6 +5,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { Notification } from 'electron';
 import log from 'electron-log';
 import { VolcengineClient } from './lib/volcengine-client';
 import { AppleSpeechClient, isAppleSpeechAvailable } from './lib/apple-speech-client';
@@ -33,6 +34,7 @@ export interface ASRServiceEvents {
   status: (status: ASRStatus) => void;
   result: (result: ASRResult) => void;
   error: (error: Error) => void;
+  silence: () => void;
 }
 
 /**
@@ -79,6 +81,20 @@ export class ASRService extends EventEmitter {
   private pendingAudioChunks: ArrayBuffer[] = [];
   private readonly maxPendingAudioChunks = 64;
   private recordingStartTime: number | null = null;
+  private appleSpeechFallbackNotified = false;
+
+  // ── VAD (Voice Activity Detection) ────────────────────────────────────────────
+  /** RMS threshold below which audio is considered silence (PCM 16-bit scale 0–1). */
+  private readonly VAD_SILENCE_THRESHOLD = 0.01;
+  /**
+   * Number of consecutive silence chunks required to trigger auto-stop.
+   * The recorder emits 4096 samples at 16 kHz, so one chunk is about 256 ms.
+   * Twelve chunks gives users roughly 3 seconds to pause and think.
+   */
+  private readonly VAD_SILENCE_CHUNKS = 12;
+  /** Do not auto-stop immediately after recording starts. */
+  private readonly VAD_MIN_RECORDING_MS = 1500;
+  private consecutiveSilenceChunks = 0;
 
   /**
    * Get current ASR status.
@@ -119,6 +135,16 @@ export class ASRService extends EventEmitter {
           this.updateStatus('connecting');
           await this.client.connect();
           logger.info('Apple Speech session started');
+          if (!this.appleSpeechFallbackNotified) {
+            this.appleSpeechFallbackNotified = true;
+            if (Notification.isSupported()) {
+              new Notification({
+                title: 'Sarah — 正在使用本地语音识别',
+                body: '当前使用 Apple Speech 本地引擎，识别准确率有限。配置火山引擎 ASR 可获得更好的效果。打开 Mini Settings 查看配置指引。',
+                silent: true,
+              }).show();
+            }
+          }
           return;
         }
         logger.error('ASR configuration error', { message: error.message });
@@ -229,6 +255,9 @@ export class ASRService extends EventEmitter {
       return;
     }
 
+    // VAD: compute RMS and track silence
+    this.trackSilence(chunk);
+
     // Apple Speech buffers all audio until finishAudio — just collect chunks
     if (this.usingAppleSpeech) {
       this.client.sendAudio(chunk);
@@ -263,7 +292,47 @@ export class ASRService extends EventEmitter {
     this.lastResult = null;
     this.lastNonEmptyResult = null;
     this.pendingAudioChunks = [];
+    this.consecutiveSilenceChunks = 0;
     this.status = 'idle';
+  }
+
+  /**
+   * Compute RMS of a PCM 16-bit audio chunk and track consecutive silence.
+   * Emits 'silence' when enough consecutive silent chunks accumulate.
+   */
+  private trackSilence(chunk: ArrayBuffer): void {
+    const samples = new Int16Array(chunk);
+    if (samples.length === 0) return;
+
+    let sumSquares = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const normalized = samples[i] / 32768;
+      sumSquares += normalized * normalized;
+    }
+    const rms = Math.sqrt(sumSquares / samples.length);
+
+    if (rms < this.VAD_SILENCE_THRESHOLD) {
+      this.consecutiveSilenceChunks += 1;
+      if (this.consecutiveSilenceChunks >= this.VAD_SILENCE_CHUNKS) {
+        const duration = this.recordingStartTime
+          ? Date.now() - this.recordingStartTime
+          : 0;
+
+        if (duration < this.VAD_MIN_RECORDING_MS) {
+          return;
+        }
+
+        logger.info('VAD: sustained silence detected, auto-stopping', {
+          chunks: this.consecutiveSilenceChunks,
+          duration,
+          rms,
+        });
+        this.consecutiveSilenceChunks = 0;
+        this.emit('silence');
+      }
+    } else {
+      this.consecutiveSilenceChunks = 0;
+    }
   }
 
   /**

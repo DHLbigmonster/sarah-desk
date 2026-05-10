@@ -16,6 +16,7 @@
     "lint": "eslint --ext .ts,.tsx .",
     "typecheck": "tsc --noEmit",
     "verify:mini": "node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts",
+    "screenshots:readme": "electron scripts/capture-readme-screenshots.cjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -46,7 +47,7 @@
     "eslint-plugin-import": "^2.32.0",
     "typescript": "^6.0.3",
     "vite": "^5.4.21",
-    "vitest": "^4.1.4"
+    "vitest": "^2.1.9"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",

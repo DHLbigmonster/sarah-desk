@@ -9,7 +9,7 @@ import { hotkeyManager } from '../services/hotkey/hotkey-manager';
 import { asrService } from '../services/asr';
 import { voiceModeManager } from '../services/push-to-talk';
 import { credentialStore } from '../services/config/credential-store';
-import type { HotkeyConfig } from '../../shared/types/clawdesk-settings';
+import type { AgentRuntimeId, HotkeyConfig } from '../../shared/types/clawdesk-settings';
 
 const logger = log.scope('clawdesk-voice-input');
 
@@ -101,8 +101,7 @@ export function setupClawDeskHandlers(): void {
     IPC_CHANNELS.CLAW_DESK.SAVE_HOTKEY_CONFIG,
     async (_event, config: HotkeyConfig) => {
       try {
-        await hotkeyManager.apply(config);
-        return { success: true };
+        return hotkeyManager.apply(config);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         return { success: false, error: msg };
@@ -192,6 +191,32 @@ export function setupClawDeskHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.CLAW_DESK.GET_OPENCLAW_STATUS,
     async () => clawDeskSettingsService.getOpenClawStatus(),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CLAW_DESK.GET_AGENT_RUNTIME_SELECTION,
+    async () => clawDeskSettingsService.getAgentRuntimeSelection(),
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CLAW_DESK.SET_AGENT_RUNTIME,
+    async (_event, runtimeId: AgentRuntimeId) => {
+      if (runtimeId !== 'openclaw' && runtimeId !== 'hermes') {
+        throw new Error(`Unknown agent runtime: ${runtimeId}`);
+      }
+      clawDeskSettingsService.setSelectedAgentRuntime(runtimeId);
+      return clawDeskSettingsService.getAgentRuntimeSelection();
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.CLAW_DESK.CONNECT_AGENT_RUNTIME,
+    async (_event, runtimeId: AgentRuntimeId) => {
+      if (runtimeId !== 'openclaw' && runtimeId !== 'hermes') {
+        throw new Error(`Unknown agent runtime: ${runtimeId}`);
+      }
+      return clawDeskSettingsService.connectAgentRuntime(runtimeId);
+    },
   );
 }
 

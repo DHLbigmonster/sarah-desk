@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 480" width="980" height="480" font-family="-apple-system, 'SF Pro Text', system-ui, sans-serif">
+  <defs>
+    <linearGradient id="archBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0e1014"/>
+      <stop offset="1" stop-color="#15181c"/>
+    </linearGradient>
+    <pattern id="archGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#fff" stroke-width="0.5" stroke-opacity="0.04"/>
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5cb3ff"/>
+    </marker>
+  </defs>
+
+  <rect width="980" height="480" fill="url(#archBg)"/>
+  <rect width="980" height="480" fill="url(#archGrid)"/>
+
+  <!-- Title -->
+  <text x="490" y="42" font-size="20" font-weight="700" fill="#fafaf6" text-anchor="middle">Sarah Architecture</text>
+  <text x="490" y="62" font-size="12" fill="#9ca09b" text-anchor="middle">Capture · Speech · Refine · Act</text>
+
+  <!-- Layer 1: Capture (left) -->
+  <g transform="translate(40, 100)">
+    <rect width="180" height="280" rx="14" fill="#161a1d" stroke="#5cb3ff" stroke-opacity="0.45" stroke-width="1.5"/>
+    <text x="90" y="30" font-size="11" letter-spacing="2" fill="#5cb3ff" text-anchor="middle" font-weight="700">CAPTURE</text>
+    <line x1="20" y1="42" x2="160" y2="42" stroke="#5cb3ff" stroke-opacity="0.25"/>
+
+    <g transform="translate(16, 60)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Hotkeys</text>
+      <text y="18" font-size="11" fill="#9ca09b">uiohook · global</text>
+    </g>
+    <g transform="translate(16, 110)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Microphone</text>
+      <text y="18" font-size="11" fill="#9ca09b">PCM 16kHz mono</text>
+    </g>
+    <g transform="translate(16, 160)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Screen Context</text>
+      <text y="18" font-size="11" fill="#9ca09b">app · title · screenshot</text>
+    </g>
+    <g transform="translate(16, 210)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Press to talk</text>
+      <text y="18" font-size="11" fill="#9ca09b">hold · press toggle</text>
+    </g>
+  </g>
+
+  <!-- Layer 2: Speech -->
+  <g transform="translate(254, 100)">
+    <rect width="180" height="280" rx="14" fill="#161a1d" stroke="#5ee2b7" stroke-opacity="0.45" stroke-width="1.5"/>
+    <text x="90" y="30" font-size="11" letter-spacing="2" fill="#5ee2b7" text-anchor="middle" font-weight="700">SPEECH</text>
+    <line x1="20" y1="42" x2="160" y2="42" stroke="#5ee2b7" stroke-opacity="0.25"/>
+
+    <g transform="translate(16, 60)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Volcengine ASR</text>
+      <text y="18" font-size="11" fill="#9ca09b">streaming · primary</text>
+    </g>
+    <g transform="translate(16, 110)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Apple Speech</text>
+      <text y="18" font-size="11" fill="#9ca09b">offline fallback</text>
+    </g>
+    <g transform="translate(16, 160)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">VAD</text>
+      <text y="18" font-size="11" fill="#9ca09b">RMS · 3s silence</text>
+    </g>
+    <g transform="translate(16, 210)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Auto fallback</text>
+      <text y="18" font-size="11" fill="#9ca09b">credentials missing</text>
+    </g>
+  </g>
+
+  <!-- Layer 3: Refine -->
+  <g transform="translate(468, 100)">
+    <rect width="180" height="280" rx="14" fill="#161a1d" stroke="#d7bc84" stroke-opacity="0.45" stroke-width="1.5"/>
+    <text x="90" y="30" font-size="11" letter-spacing="2" fill="#d7bc84" text-anchor="middle" font-weight="700">REFINE</text>
+    <line x1="20" y1="42" x2="160" y2="42" stroke="#d7bc84" stroke-opacity="0.25"/>
+
+    <g transform="translate(16, 60)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Ark Doubao</text>
+      <text y="18" font-size="11" fill="#9ca09b">lightweight · 7s</text>
+    </g>
+    <g transform="translate(16, 110)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Smart polish</text>
+      <text y="18" font-size="11" fill="#9ca09b">≥40 chars</text>
+    </g>
+    <g transform="translate(16, 160)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Filler removal</text>
+      <text y="18" font-size="11" fill="#9ca09b">嗯 · 那个 · 就是</text>
+    </g>
+    <g transform="translate(16, 210)">
+      <text font-size="13" fill="#fafaf6" font-weight="600">Punctuation</text>
+      <text y="18" font-size="11" fill="#9ca09b">structure · breaks</text>
+    </g>
+  </g>
+
+  <!-- Layer 4: Act -->
+  <g transform="translate(682, 100)">
+    <rect width="260" height="280" rx="14" fill="#161a1d" stroke="#5cb3ff" stroke-opacity="0.45" stroke-width="1.5"/>
+    <text x="130" y="30" font-size="11" letter-spacing="2" fill="#5cb3ff" text-anchor="middle" font-weight="700">ACT</text>
+    <line x1="20" y1="42" x2="240" y2="42" stroke="#5cb3ff" stroke-opacity="0.25"/>
+
+    <g transform="translate(16, 60)">
+      <circle cx="6" cy="8" r="4" fill="#5cb3ff"/>
+      <text x="20" y="12" font-size="13" fill="#fafaf6" font-weight="600">Dictation</text>
+      <text x="20" y="28" font-size="11" fill="#9ca09b">insert text at cursor</text>
+    </g>
+    <g transform="translate(16, 110)">
+      <circle cx="6" cy="8" r="4" fill="#d7bc84"/>
+      <text x="20" y="12" font-size="13" fill="#fafaf6" font-weight="600">Command</text>
+      <text x="20" y="28" font-size="11" fill="#9ca09b">OpenClaw agent · acts on screen</text>
+    </g>
+    <g transform="translate(16, 160)">
+      <circle cx="6" cy="8" r="4" fill="#5ee2b7"/>
+      <text x="20" y="12" font-size="13" fill="#fafaf6" font-weight="600">Quick Ask</text>
+      <text x="20" y="28" font-size="11" fill="#9ca09b">streaming Q&amp;A · overlay</text>
+    </g>
+    <g transform="translate(16, 210)">
+      <text font-size="11" letter-spacing="1.4" fill="#7d8480" font-weight="700">LOCAL TOOLS REGISTRY</text>
+      <text y="18" font-size="11" fill="#9ca09b">Obsidian · Lark · OpenClaw</text>
+      <text y="34" font-size="11" fill="#9ca09b">approval-gated capabilities</text>
+    </g>
+  </g>
+
+  <!-- Arrows between layers -->
+  <line x1="220" y1="240" x2="252" y2="240" stroke="#5cb3ff" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="434" y1="240" x2="466" y2="240" stroke="#5ee2b7" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="648" y1="240" x2="680" y2="240" stroke="#d7bc84" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- Bottom layer: Config -->
+  <g transform="translate(40, 410)">
+    <rect width="900" height="46" rx="11" fill="#0d1014" stroke="#fff" stroke-opacity="0.07"/>
+    <text x="20" y="18" font-size="10" letter-spacing="1.6" fill="#7d8480" font-weight="700">CONFIG &amp; STATE</text>
+    <text x="20" y="36" font-size="12" fill="#cdd0cc">credentialStore (safeStorage) · .env fallback · ~/.sarah memory · daily summary scheduler</text>
+  </g>
+</svg>

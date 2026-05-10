@@ -117,12 +117,42 @@ export const IPC_CHANNELS = {
     CONFIG_DELETE_PROVIDER_KEY: 'claw-desk:config-delete-provider-key',
     /** Get Open Claw installation and auth status */
     GET_OPENCLAW_STATUS: 'claw-desk:get-openclaw-status',
+    /** Get selectable agent runtimes and current runtime choice */
+    GET_AGENT_RUNTIME_SELECTION: 'claw-desk:get-agent-runtime-selection',
+    /** Persist selected agent runtime */
+    SET_AGENT_RUNTIME: 'claw-desk:set-agent-runtime',
+    /** Select a runtime and open/start the next setup step if needed */
+    CONNECT_AGENT_RUNTIME: 'claw-desk:connect-agent-runtime',
+  },
+  LOCAL_TOOLS: {
+    /** Detect local tools, auth state, safe capabilities, and setup gaps */
+    GET_SNAPSHOT: 'local-tools:get-snapshot',
+    /** Grant approval for a capability (Renderer -> Main) */
+    SET_APPROVAL: 'local-tools:set-approval',
+    /** Revoke approval for a capability (Renderer -> Main) */
+    REVOKE_APPROVAL: 'local-tools:revoke-approval',
+    /** Execute a capability (Renderer -> Main) */
+    EXECUTE: 'local-tools:execute',
   },
   MINI: {
     /** Read current Mini runtime status for the settings window */
     GET_STATUS: 'mini:get-status',
+    /** Hide the custom menu bar popover */
+    HIDE_POPOVER: 'mini:hide-popover',
+    /** Show the full Sarah settings window */
+    SHOW_SETTINGS: 'mini:show-settings',
+    /** Run permission repair flow */
+    OPEN_PERMISSIONS: 'mini:open-permissions',
+    /** Toggle Dictation from UI */
+    TOGGLE_DICTATION: 'mini:toggle-dictation',
+    /** Toggle Command mode from UI */
+    TOGGLE_COMMAND: 'mini:toggle-command',
+    /** Quit Sarah */
+    QUIT: 'mini:quit',
     /** Open the current electron-log output location */
     SHOW_LOGS: 'mini:show-logs',
+    /** Mark first-run onboarding complete */
+    COMPLETE_ONBOARDING: 'mini:complete-onboarding',
     /** Renderer -> Main: hidden recorder renderer and preload are alive */
     RECORDER_READY: 'recorder:ready',
     /** Main -> Renderer: ping hidden recorder renderer */

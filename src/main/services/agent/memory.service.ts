@@ -1,10 +1,10 @@
 /**
  * Memory Service.
  * Persists user preferences, recent actions, daily summaries, and session
- * messages to local JSON files under ~/.feishu-agent/.
+ * messages to local JSON files under ~/.sarah/.
  *
  * Directory layout:
- *   ~/.feishu-agent/
+ *   ~/.sarah/
  *     memory.json          — preferences, recent_actions, learned_patterns, daily_summaries
  *     screenshots/         — rotating PNGs from context capture
  *     sessions/            — one JSON file per day (YYYY-MM-DD.json)
@@ -18,7 +18,8 @@ import type { AgentMessage, DailySummary, PersistedSession } from '../../../shar
 
 const logger = log.scope('memory-service');
 
-export const MEMORY_DIR = path.join(os.homedir(), '.feishu-agent');
+const LEGACY_MEMORY_DIR = path.join(os.homedir(), '.feishu-agent');
+export const MEMORY_DIR = path.join(os.homedir(), '.sarah');
 export const MEMORY_FILE = path.join(MEMORY_DIR, 'memory.json');
 const SCREENSHOTS_DIR = path.join(MEMORY_DIR, 'screenshots');
 const SESSIONS_DIR = path.join(MEMORY_DIR, 'sessions');
@@ -53,7 +54,10 @@ const DEFAULT_MEMORY: AgentMemory = {
 
 /** Returns YYYY-MM-DD string for a given Date (defaults to today). */
 export function isoDate(d: Date = new Date()): string {
-  return d.toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /** Returns YYYY-MM-DD string for yesterday. */
@@ -67,6 +71,21 @@ export function yesterdayDate(): string {
 
 export class MemoryService {
   ensureDirectories(): void {
+    if (!fs.existsSync(MEMORY_DIR) && fs.existsSync(LEGACY_MEMORY_DIR)) {
+      try {
+        fs.cpSync(LEGACY_MEMORY_DIR, MEMORY_DIR, { recursive: true, errorOnExist: false });
+        logger.info('Migrated legacy memory directory', {
+          from: LEGACY_MEMORY_DIR,
+          to: MEMORY_DIR,
+        });
+      } catch (error) {
+        logger.warn('Failed to migrate legacy memory directory', {
+          from: LEGACY_MEMORY_DIR,
+          to: MEMORY_DIR,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     for (const dir of [MEMORY_DIR, SCREENSHOTS_DIR, SESSIONS_DIR]) {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -143,6 +162,28 @@ export class MemoryService {
     const session: PersistedSession = { date, messages, savedAt: Date.now() };
     fs.writeFileSync(this.sessionPath(date), JSON.stringify(session, null, 2), 'utf-8');
     logger.debug('Session saved', { date, count: messages.length });
+  }
+
+  appendTurn(userText: string, assistantText: string, date: string = isoDate()): void {
+    this.ensureDirectories();
+    const existing = this.loadSession(date);
+    const now = Date.now();
+    const messages: AgentMessage[] = [
+      ...(existing?.messages ?? []),
+      {
+        id: `user-${now}`,
+        role: 'user',
+        content: userText,
+        timestamp: now,
+      },
+      {
+        id: `assistant-${now}`,
+        role: 'assistant',
+        content: assistantText,
+        timestamp: now,
+      },
+    ];
+    this.saveSession(messages, date);
   }
 
   loadSession(date: string): PersistedSession | null {

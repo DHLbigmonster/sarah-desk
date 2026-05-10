@@ -42,3 +42,6 @@ export type { PermissionStatus, PermissionType, MediaAccessStatus } from './perm
 // Voice Mode Service
 export { VoiceModeManager, voiceModeManager } from './push-to-talk';
 export type { VoiceState } from './push-to-talk';
+
+// Local Tools Service
+export { LocalToolsService, localToolsService } from './local-tools';

@@ -202,3 +202,545 @@ The voice trigger key (previously hardcoded to Right Ctrl) is now user-configura
 - **Settings UI**: `HotkeysSection` shows a grid of all safe trigger keys. `isDirty` check covers `voiceTriggerKey`, `customKeycode`, and `toggleWindow`.
 - **Mini settings**: Hotkey hint is now dynamic (computed from `hotkeyConfig`), not hardcoded "Right Ctrl · Ctrl+Space".
 - **HotkeyManager.apply()**: `voiceTriggerChanged` compares both `voiceTriggerKey` and `customKeycode` to detect changes when the user switches between custom keycodes.
+
+## 2026-05-01 Pre-UI-Optimization Save
+
+User asked to optimize the current project UI with GPT image generation support, but first save the current project state to GitHub.
+
+- Created a preservation point before any UI optimization work.
+- Current working tree already contained broad changes: removal of the old `src/renderer/clawdesk/**` surface and `vite.clawdesk.config.ts`, updates around mini settings, ASR, push-to-talk, IPC/preload types, and new marketing notes.
+- Decision: keep all existing local changes intact and save them as-is before discussing or implementing the next UI direction.
+- No UI optimization has been started in this entry.
+
+Next steps:
+
+- Discuss target UI direction for Sarah: menubar popover, mini settings, floating HUD, answer overlay, or marketing surfaces.
+- Before editing UI code, read the specific Trellis frontend guidelines for window lifecycle, IPC, component structure, React pitfalls, and type safety.
+- Use generated raster visuals only where they improve the actual product surface; keep app controls dense, clear, and native-feeling.
+
+## 2026-05-01 Menubar Popover UI
+
+User approved optimizing the menubar popover first.
+
+- Added a custom `MenubarPopoverWindowManager` in `src/main/windows/menubar-popover.ts`.
+- Added Forge/Vite renderer target `menubar_popover_window` plus `menubar-popover.html`.
+- Tray left-click now opens the custom Sarah popover unless there is an unread Command result; right-click still opens the native diagnostic context menu.
+- Popover renderer lives in `src/renderer/menubar-popover/` and uses a compact macOS-style surface: status hero, Dictate/Command actions, permission repair strip, runtime status rows, Logs/Refresh/Quit footer.
+- Reused existing Mini status data instead of creating a separate status model.
+- Added Mini IPC actions for hiding the popover, opening settings, opening permissions, toggling Dictation/Command, and quitting.
+- Added `src/types/lucide-react-icons.d.ts` so direct per-icon lucide ESM imports stay typeable without pulling the full lucide root module into the popover bundle.
+- Extended `scripts/verify-mini-integration.ts` to cover the new popover entry, window manager, packaged path, and Forge target.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 61/61 checks.
+- `./node_modules/.bin/esbuild src/renderer/menubar-popover/index.tsx --bundle --format=esm --platform=browser --outfile=/tmp/sarah-menubar-popover.js --loader:.css=empty --loader:.woff2=file` passed.
+- Full `pnpm -s typecheck`, focused `tsc`, full/focused `eslint`, and Vite renderer builds hung in this local environment with no diagnostics. Vite also hung on the pre-existing `vite.mini-settings.config.ts`, so this appears broader than the new popover entry.
+
+Open questions / next steps:
+
+- Run the Electron app manually and inspect tray click positioning on a real multi-display macOS setup.
+- Consider adding a Quick Ask button once there is a non-recording IPC entry point for it; current UI exposes Dictation and Command because those existing manager toggles are available.
+- If Vite hangs persist, investigate local dependency/runtime behavior before relying on local renderer production builds.
+
+## 2026-05-01 Answer Overlay and Mini Settings Interaction Pass
+
+User asked to continue with answer overlay and mini settings interaction improvements, and allowed implementing recommended changes.
+
+- Answer overlay now has a functional action bar instead of passive shortcut text.
+- Streaming answers expose `Stop`; completed answers expose `Retry`, `Copy`, and `Done`.
+- Answer body auto-scrolls while streaming so long responses remain readable.
+- Cmd/Ctrl+C copies the full answer only when no text selection exists.
+- Prompt display is now a compact bounded panel with a `Prompt` label and three-line clamp, reducing overlay height churn.
+- Mini Settings window resized from 380x380 to 420x500 and changed from a passive status grid into a control center.
+- Mini Settings now exposes Dictate, Command, Fix Permissions, Refresh, Logs, and Quit actions using the Mini IPC actions added for the menubar popover.
+- Mini Settings now has a health summary card that prioritizes missing permissions, missing agent, recorder warmup, or ready state.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 61/61 checks.
+- `git diff --check` passed.
+- Esbuild syntax/transpile checks passed for:
+  - `src/renderer/menubar-popover/index.tsx`
+  - `src/renderer/mini-settings/index.ts`
+  - `src/renderer/src/modules/agent/AgentWindow.tsx`
+
+Open questions / next steps:
+
+- Manual Electron UI verification is still needed for exact overlay sizing, tray popover placement, and Mini Settings visual density.
+- Full Vite/TypeScript/lint verification remains blocked by the local no-output hang observed earlier.
+
+## 2026-05-01 Dictation Quality Pass
+
+User reported Sarah's dictation output felt much weaker than Typeless, especially around punctuation, sentence boundaries, and incomplete spoken phrases. User also reported that the installed Sarah app would not open.
+
+- Runtime diagnosis showed the installed Sarah app was using Volcengine ASR, not Apple Speech fallback. The weak dictation output was primarily a post-processing/refinement issue rather than raw ASR alone.
+- The installed app failure came from a manual `app.asar` hot patch path. The app was restored to the last stable `app.asar`, re-signed, and confirmed running again from `~/Applications/Sarah.app`.
+- Changed `lightweight-refinement-client.ts` to resolve Ark refinement config dynamically on every call instead of caching config at module construction time. This prevents Settings/.env changes from being ignored by the singleton refinement client.
+- Upgraded `dictation-refinement.service.ts` prompts from conservative cleanup to stronger Typeless-style dictation polish: remove fillers, repair spoken restarts, improve punctuation/paragraphs, preserve meaning, and avoid invented facts.
+- Lowered smart refinement routing threshold so medium dictations (`>=40` chars), filler-heavy utterances, restarts, lists, and repeated phrases use the stronger structured prompt.
+- Increased Ark refinement defaults to 7s timeout and 500 max tokens in config resolution and `.env.example`.
+- Relaxed ASR VAD auto-stop from roughly 1.5s of silence to roughly 3s, with a minimum recording duration guard so brief thinking pauses are less likely to truncate speech.
+- Added raw/refined transcript previews in voice-mode logs for future debugging.
+
+Verification:
+
+- Targeted esbuild checks passed for `dictation-refinement.service.ts`, `lightweight-refinement-client.ts`, `asr.service.ts`, and `voice-mode-manager.ts`.
+- `git diff --check` passed.
+- `pnpm -s verify:mini` static checks passed, but packaged checks failed because `out/Sarah-darwin-arm64/Sarah.app` is absent.
+- Full `pnpm -s typecheck` and `pnpm -s lint` still hung locally with no output and were terminated.
+
+Known issue / next steps:
+
+- Do not manually replace installed `app.asar` again unless the replacement comes from the normal Forge package flow or the Electron asar integrity/signing path is fully understood. A second manual replacement attempt still caused immediate launch failure and was rolled back.
+- Fix the local Forge/Vite packaging hang so these source changes can be installed through `pnpm run install:app`.
+- After a normal install, dictate a few real samples and compare `dictation_raw_input`, `model_refinement_success`, and `Voice transcript refined` logs.
+
+## 2026-05-01 Hotkey Settings Review
+
+User asked to inspect whether the earlier user-configurable shortcut work was actually complete from an interaction/UI perspective, and to keep checking previous promised tasks when continuing work.
+
+- Diagnosis: the lower-level hotkey model and runtime rebinding existed, but the current Mini Settings UI only displayed the trigger key hint. The older full Settings / `HotkeysSection` referenced in memory is no longer present after the ClawDesk debug console removal.
+- Added an editable Hotkeys card to Mini Settings with a safe trigger-key grid (`Right Ctrl`, `Right Alt`, `Caps Lock`, `Right Cmd`, `F1`-`F12`). It shows the current key, explains `+Shift` for Command and `+Space` for Quick Ask, disables changes while recording, and displays success/error notices.
+- Fixed `SAVE_HOTKEY_CONFIG` IPC so renderer callers receive `hotkeyManager.apply()` failures instead of always getting `{ success: true }`.
+- Fixed trigger pseudo-modifier cleanup when switching between non-standard trigger keys and standard modifier keys by clearing `KeyboardService.setTriggerKeycode(null)` during dispose / standard-key initialization.
+- Trellis task list check returned no active tasks. Previous remembered open items still include packaging/build hang, manual UI verification after normal install, and avoiding manual `app.asar` replacement.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 61/61.
+- Targeted esbuild checks passed for `src/renderer/mini-settings/index.ts`, `src/main/ipc/claw-desk.handler.ts`, and `src/main/services/push-to-talk/voice-mode-manager.ts`.
+- `git diff --check` passed.
+- `pnpm -s typecheck` still hung locally with no output and was terminated.
+
+Known limitations / next steps:
+
+- Custom arbitrary keycode capture is still not a polished UI. The Mini Settings picker exposes the safe supported keys; if arbitrary key capture is needed, add a proper "press a key to capture" flow instead of asking users to type numeric uiohook keycodes.
+- The separate "toggle debug/settings window" accelerator still points at the removed ClawDesk stub and should either be removed from product UI or repurposed to toggle Mini Settings / menubar popover.
+
+## 2026-05-01 High-End UI Polish Follow-Up
+
+User asked whether the earlier Image 2.0 / UI interaction optimization had actually been done, and requested another pass toward a more premium desktop software feel.
+
+- Decision: did not add generated bitmap assets to the Electron surfaces. For small macOS utility panels, the higher-quality path is native-feeling glass material, restrained texture, clear hierarchy, and precise states; generated image assets would add packaging/signing risk without improving the core interaction.
+- Menubar popover visual polish:
+  - Increased popover height to fit a complete status stack.
+  - Added `Refinement` provider status so dictation quality infrastructure is visible next to Speech, Agent, and Recorder.
+  - Fixed shortcut copy from `hold to dictate` to `press to dictate`, matching the current press-to-toggle behavior.
+  - Added a more refined glass background, subtle grid/noise texture, stronger inner highlight, and better button/status row depth.
+- Mini Settings polish:
+  - Added a three-mode shortcut deck showing Dictate, Command, and Ask combinations explicitly.
+  - Improved shortcut hint copy so users understand they choose one base trigger and Sarah derives the other modes.
+  - Added more premium visual treatment for the shell, brand mark, hero panel, selected hotkey buttons, status rows, and action buttons.
+- Existing hotkey picker behavior remains intact: safe trigger keys only, disabled while recording, and success/error notice after applying.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 61/61.
+- `git diff --check` passed.
+- Targeted esbuild checks passed for `src/renderer/menubar-popover/index.tsx`, `src/renderer/mini-settings/index.ts`, and `src/main/windows/menubar-popover.ts`.
+- Standalone `pnpm -s vite build --config vite.mini-settings.config.ts` and `pnpm -s vite build --config vite.menubar-popover.config.ts` hung with no output and were terminated. This matches the existing local Vite/Forge hang and remains unresolved.
+
+Known limitations / next steps:
+
+- Manual visual verification still requires a normal dev/package path. Do not hot-patch the installed `~/Applications/Sarah.app` by replacing `app.asar` again.
+- Fix the local Vite/Forge hang before promising that these UI changes are visible in the currently installed desktop app.
+- Consider adding a real Quick Ask IPC action so menubar and Mini Settings can expose Ask as an active button instead of only documenting its shortcut.
+
+## 2026-05-02 Gateway Speed and Open-Source Onboarding Pass
+
+User reported the full app UI still looked unsophisticated, asked for a more Claude/ChatGPT/Hermes-like premium feel with subtle pixel texture, reported OpenClaw answers from Sarah taking around a minute while OpenClaw itself answers in seconds, and raised a release risk: new GitHub users may not connect to their local OpenClaw Gateway correctly.
+
+- Diagnosis:
+  - The large sidebar Chat UI shown by the user is from the old installed ClawDesk/Control surface; the current source branch has removed that full renderer and only retains Sarah's floating/agent overlay, menubar popover, and Mini Settings.
+  - Current `AgentService` used `openclaw agent --json --message <large prompt>` and waited for process completion before emitting pseudo-streamed chunks.
+  - Local timing confirmed a trivial `2+2` turn through `openclaw agent` took about 37s total and returned OpenClaw metadata with `contextTokens: 272000`.
+  - Calling the running Gateway via `openclaw gateway call agent --expect-final` plus `promptMode=minimal`, `bootstrapContextMode=lightweight`, and `modelRun=true` reduced the same trivial turn to about 4.2s total, with model duration about 1.7s and prompt tokens around 6800.
+- Speed changes:
+  - `AgentService` now defaults to the Gateway agent path instead of the older direct `openclaw agent` path.
+  - Gateway calls pass `thinking=off`, `promptMode=minimal`, `bootstrapContextMode=lightweight`, `modelRun=true`, `cleanupBundleMcpOnRunEnd=true`, a stable Sarah session id, and a per-run idempotency key.
+  - Gateway calls now use a short Sarah prompt containing only screen context, context-use rules, recent Sarah actions, and the user request. The old long tool/skill prompt remains only for the fallback direct CLI path.
+  - Added environment overrides: `SARAH_OPENCLAW_GATEWAY_AGENT`, `SARAH_OPENCLAW_AGENT_ID`, `SARAH_OPENCLAW_THINKING`, `SARAH_OPENCLAW_PROMPT_MODE`, `SARAH_OPENCLAW_BOOTSTRAP_MODE`, `SARAH_OPENCLAW_MODEL`, `SARAH_OPENCLAW_TIMEOUT_SECONDS`, and `SARAH_OPENCLAW_GATEWAY_TIMEOUT_MS`.
+  - Abort now also sends a best-effort `sessions.abort` Gateway call for the active Sarah run.
+- Gateway onboarding changes:
+  - `claw-desk.ts` now distinguishes missing OpenClaw install, missing config, missing token, and stopped Gateway instead of only returning a generic offline state.
+  - `getWorkspaceTarget()` now returns a tokenized local Control UI URL when the Gateway is reachable; otherwise it returns actionable setup/start errors.
+  - README and `.env.example` now document `openclaw onboard`, `openclaw gateway start`, `openclaw gateway probe`, and Sarah's lightweight Gateway defaults.
+- UI polish:
+  - Agent answer overlay now uses a more restrained dark material with subtle warm highlights, pixel-grid texture, squared status pixels, and less generic blue SaaS styling.
+
+Verification:
+
+- Targeted esbuild checks passed for `src/main/services/agent/agent.service.ts` and `src/main/windows/claw-desk.ts`.
+- `CI=true pnpm -s verify:mini` passed 61/61.
+- `git diff --check` passed.
+- `vitest run src/main/services/agent/agent.service.test.ts --runInBand` hung with no output and was terminated, matching the broader local test/build hang pattern seen earlier.
+- A focused esbuild attempt for `AgentWindow.tsx` also hung and was terminated; only CSS changed there, and the main-process checks passed.
+
+Known limitations / next steps:
+
+- The current source branch cannot directly restyle the full sidebar Chat UI shown in the user's screenshot because that old ClawDesk renderer is no longer present in active source. If the product should keep that window, restore/rebuild it as a first-class renderer instead of relying on stale installed app assets.
+- Gateway path still waits for a final result through `openclaw gateway call`; true token streaming would require a native Gateway WebSocket client and subscription to agent events instead of the CLI wrapper.
+- Full package/dev-server verification remains blocked by the local Vite/Forge no-output hang.
+
+## 2026-05-02 Daily Memory Closure and Product Direction
+
+User asked whether the daily conversation summary/memory model was the right product direction, whether Sarah should be merged into OpenClaw or released separately, how local CLIs such as Obsidian/Feishu should be called, and how onboarding should teach users the product without relying on README reading.
+
+- Diagnosis:
+  - The daily memory architecture existed, but the active overlay flow did not persist completed user/assistant turns with `saveSession()`, so nightly consolidation could run without a useful daily session file.
+  - Consolidation only ran once after app startup and used UTC date keys through `toISOString().slice(0, 10)`, which is wrong for a local daily memory product.
+  - Sarah's memory is currently local Sarah memory, not OpenClaw's own long-term memory store.
+- Memory changes:
+  - `MemoryService.isoDate()` now uses the local calendar date.
+  - Added `MemoryService.appendTurn()` to append completed user and assistant messages into the current day session under `~/.feishu-agent/sessions/YYYY-MM-DD.json`.
+  - `AgentService` now records each successful completed turn after receiving the OpenClaw response, while the UI can remain transient.
+  - `ConsolidationService.startScheduler()` now runs consolidation immediately and schedules the next local 00:10 run, repeating daily.
+  - Daily summary generation now uses the lightweight OpenClaw Gateway path instead of the slower full `openclaw agent` path.
+  - `agent.handler.ts` now starts the consolidation scheduler at app initialization.
+- Product decision:
+  - Recommended direction is to keep Sarah as a separate macOS voice/product layer for now, while upstreaming only generic OpenClaw improvements as focused PRs.
+  - A whole Electron/macOS assistant is less likely to be accepted into OpenClaw core immediately; small PRs around Gateway, onboarding, installer checks, and integration contracts are more likely to land.
+  - A separate release can prove usage and polish first, then support a later official "OpenClaw Desktop Voice" proposal.
+- Local CLI strategy:
+  - Add a first-class "Local Tools" registry/doctor instead of hard-coding every tool in one prompt.
+  - Detect installed CLIs, auth state, executable path, and safe command capabilities; expose install/setup actions; pass discovered capabilities into Sarah/OpenClaw context.
+  - Require user consent/allowlists for commands that write files, send messages, or call external services.
+- Onboarding strategy:
+  - README should remain reference material, but first-run onboarding must check microphone/Input Monitoring/Accessibility, ASR provider state, OpenClaw install/config/Gateway probe, and local tool discovery.
+  - The app should show actionable fix buttons and a few demo commands after setup, because many users will not read README.
+
+Verification:
+
+- Targeted esbuild checks passed for `src/main/services/agent/agent.service.ts`, `src/main/services/agent/consolidation.service.ts`, and `src/main/services/agent/memory.service.ts`.
+- `CI=true pnpm -s verify:mini` passed 61/61.
+- `git diff --check` passed.
+
+Known limitations / next steps:
+
+- Rename the legacy local storage path `~/.feishu-agent` to a Sarah/OpenClaw-specific path with migration.
+- Bridge Sarah daily summaries into OpenClaw's own long-term memory or a Sarah-specific OpenClaw workspace memory file; right now they are Sarah-local memory.
+- Add a visible Memory/History setting that lets users choose whether raw daily transcripts are kept locally, summarized then pruned, or disabled.
+- Build first-run onboarding and a Local Tools registry/doctor as the next high-leverage product work.
+
+## 2026-05-02 Local Tools Registry and Product Surface Reduction
+
+User accepted the recommendation to reduce the old ClawDesk/chat-control-console shape and asked to implement the Local Tools registry directly.
+
+- Local Tools registry:
+  - Added shared `local-tools` types and a main-process `LocalToolsService`.
+  - Added `LOCAL_TOOLS.GET_SNAPSHOT` IPC, handler registration, preload API, and `window.api.localTools.getSnapshot()`.
+  - Detects OpenClaw, Obsidian, and Feishu/Lark CLI with installed path, version when available, auth/setup state, health, setup hint, and safe capability metadata.
+  - OpenClaw readiness is based primarily on a reachable local Gateway with configured token; `openclaw whoami` is treated as an additional signal rather than the only auth source.
+  - Capability metadata is deliberately conservative: read actions can be enabled automatically; write/message/external actions are marked as requiring explicit approval.
+  - `AgentService` now injects a compact Local Tools summary into prompts instead of hard-coding a long CLI/tool instruction block.
+- UI/product shape:
+  - Mini Settings now shows a Local Tools card with ready/setup/missing status and capability chips.
+  - Mini Settings window height increased to make this a first-class release surface.
+  - Release shortcut picker is reduced to stable choices: Right Option, Right Cmd, F18, and F19. Complex/custom keycodes remain hidden from the main path.
+  - The old toggle-window accelerator now opens Mini Settings instead of targeting the removed ClawDesk stub.
+- Memory naming cleanup:
+  - Sarah memory now uses `~/.sarah` as the primary directory.
+  - `MemoryService.ensureDirectories()` migrates legacy `~/.feishu-agent` data into `~/.sarah` when the new directory does not exist.
+
+Verification:
+
+- Targeted esbuild checks passed for `src/main/services/local-tools/local-tools.service.ts`, `src/main/ipc/local-tools.handler.ts`, `src/main/services/agent/agent.service.ts`, and `src/renderer/mini-settings/index.ts`.
+- Direct local tools smoke check returned OpenClaw, Obsidian, and Lark CLI as detected on this machine.
+- `CI=true pnpm -s verify:mini` passed 66/66.
+- `git diff --check` passed.
+- `pnpm -s typecheck` still hung locally with no output after 30 seconds and was terminated, matching the existing local typecheck hang.
+
+Known limitations / next steps:
+
+- Local Tools is detect-only. It does not execute tool actions yet; execution should be added behind explicit per-action approval and allowlists.
+- Obsidian detection currently confirms app/CLI presence and assumes URI scheme availability when Obsidian is installed. Vault-level write configuration still needs a real onboarding step.
+- Feishu/Lark CLI auth detection is best-effort across common command shapes. Add a specific supported CLI contract before exposing write/send actions.
+- The old `clawdesk` internal names remain in legacy IPC/settings modules. User-facing product shape is Sarah-first, but a later cleanup should rename internals once release behavior is stable.
+
+## 2026-05-03 Packaging Recovery and Installed App Verification
+
+User asked to continue the prior UI/product optimization work after packaging had stalled.
+
+- Packaging diagnosis:
+  - `electron-forge package` was hanging before build output because importing `forge.config.ts` blocked on `@electron-forge/maker-zip`.
+  - The root local cause was a corrupted `node_modules` tree containing 6746 macOS conflict-copy files/directories with ` 2` suffixes, including duplicated `got` and `@electron-forge/maker-zip` package contents.
+  - After deleting `node_modules` and running `pnpm install`, conflict-copy count dropped to 0 and direct imports of `got`, `@electron-forge/maker-zip`, and `forge.config.ts` completed in under 200ms.
+- Install script fix:
+  - `scripts/install-packaged-app.sh` previously copied the packaged bundle with `rsync -a "$PACKAGED_APP_PATH" "$TARGET_APP_PATH"`, which created a nested `~/Applications/Sarah.app/Sarah.app` bundle.
+  - Changed the copy step to create the target bundle directory and sync `"$PACKAGED_APP_PATH/"` into `"$TARGET_APP_PATH/"`, so signing operates on `~/Applications/Sarah.app/Contents/...` as intended.
+- Installed app verification:
+  - `pnpm run install:app` now completes: package, copy, sign, preserve TCC grants, remove build output, and open the installed app.
+  - Installed Sarah is running from `/Users/chaosmac/Applications/Sarah.app/Contents/MacOS/Sarah`.
+  - `codesign --verify --deep --strict --verbose=2 ~/Applications/Sarah.app` passes.
+  - `~/Applications/Sarah.app/Contents/Resources/.env` is present in the packaged app.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `pnpm exec electron-forge --version` returned 7.11.1.
+- `pnpm run install:app` completed successfully.
+
+Known limitations / next steps:
+
+- Full `pnpm -s typecheck` has historically hung in this local environment; keep using targeted esbuild checks plus `verify:mini` unless the typecheck hang is separately diagnosed.
+- Avoid any future installed-app hot-patching of `app.asar`; Electron has embedded asar integrity enabled, so app.asar changes after signing will crash at launch.
+
+## 2026-05-03 Answer Overlay Premium Redesign and Follow-up UX
+
+User showed a screenshot of the answer overlay and said the panel felt too narrow, the text looked odd, and the interaction for follow-up questions was unclear. User asked to use online design references and image generation to make the UI feel more premium.
+
+- Design direction:
+  - Used Apple popover guidance, ChatGPT macOS launcher/desktop references, and Raycast keyboard-first utility references to keep the overlay temporary, clear, and action-oriented.
+  - Generated a visual reference mockup at `/Users/chaosmac/.codex/generated_images/019de2eb-a507-7ff3-a21a-41583b72e482/ig_0d3a9c84893530a70169f722c756e08191ae213f14355f47b3.png`.
+  - Chose a refined macOS utility surface: wider liquid-glass dark panel, subtle pixel grid, warm amber accent, restrained hierarchy, and larger readable Chinese answer text.
+- UI changes:
+  - `AgentWindowManager` answer overlay size increased from 560x400 to 760x520.
+  - Reworked `agent-window.css` around a 720px content surface, better typography, lighter prompt treatment, improved markdown/code styling, stronger contrast, and reduced card-within-card feel.
+  - Changed visible labels from generic English (`Answer`, `Prompt`) to product-specific Chinese (`Sarah 回答`, `你刚才说`).
+- Follow-up interaction:
+  - Added a first-class `继续追问` action in the overlay.
+  - Clicking it opens a compact follow-up composer inside the answer overlay.
+  - Users can type and press Enter to send, or click the mic button to dictate a follow-up using the existing ASR path.
+  - The hint clarifies that this is the right path for continuing the current answer; Right Ctrl + Shift is positioned as starting a new Command from the frontmost app, not as the primary follow-up mechanism.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- Targeted esbuild checks passed for `src/renderer/src/modules/agent/AgentWindow.tsx` and `src/main/windows/agent.ts`.
+- `git diff --check` passed.
+- `pnpm -s typecheck` passed.
+- `pnpm run install:app` completed successfully and relaunched the installed Sarah app.
+
+Known limitations / next steps:
+
+- Follow-up voice input currently uses the existing ASR path and appends the final transcript into the composer; it does not yet run the dictation refinement prompt before insertion into the composer.
+- Manual visual validation still needs the user to trigger an actual Command/Quick Ask and inspect the installed overlay in context.
+
+## 2026-05-06 Hermes Runtime Switcher
+
+User asked whether Sarah can connect to Hermes in addition to OpenClaw, with a low-friction Settings interaction where normal users can switch between OpenClaw and Hermes in one click and Sarah can recognize existing local Hermes setup.
+
+- Local discovery:
+  - Confirmed this machine has `~/.local/bin/hermes`, `/Applications/HermesDesktop.app`, `~/.hermes`, `~/Library/Application Support/HermesDesktop/connections.json`, and `~/Library/LaunchAgents/ai.hermes.gateway.plist`.
+  - `hermes --version` reports Hermes Agent v0.11.0 and `hermes status` reports the gateway service running via launchd.
+- Runtime architecture:
+  - Added shared `AgentRuntimeId`, `AgentRuntimeStatus`, and `AgentRuntimeSelection` types.
+  - `ClawDeskSettingsService` now stores `selectedAgentRuntime` in `clawdesk-settings.json`.
+  - Runtime detection checks OpenClaw and Hermes, including common GUI-launch PATH gaps such as `~/.local/bin`.
+  - Effective runtime selection is automatic when no manual choice exists: prefer ready OpenClaw for backwards compatibility, otherwise any ready runtime, otherwise installed runtime as a setup hint.
+  - `AgentService` now chooses the effective runtime per run. OpenClaw keeps the existing gateway/CLI path; Hermes uses `hermes --oneshot <prompt>` with `HERMES_ACCEPT_HOOKS=1`.
+  - Abort logic only sends OpenClaw gateway aborts when the active runtime is OpenClaw.
+- UI / IPC:
+  - Added `claw-desk:get-agent-runtime-selection` and `claw-desk:set-agent-runtime` IPC channels plus preload APIs.
+  - Mini Settings now shows an `Agent Runtime` card with two one-click options: OpenClaw and Hermes.
+- Runtime cards show Ready / Setup / Missing, detected path or setup hint, and whether Sarah is using Auto or Manual selection.
+- Runtime cards now act as connectors, not just selectors: clicking Hermes opens Hermes Desktop when available or falls back to `hermes setup` in Terminal; clicking OpenClaw selects it, attempts `openclaw gateway start`, and falls back to terminal onboarding if needed.
+- OpenClaw readiness now matches the actual default execution path more closely: when `SARAH_OPENCLAW_GATEWAY_AGENT` is enabled, Sarah requires a configured and reachable OpenClaw gateway rather than only `openclaw whoami`.
+- First-run checklist now says `Agent runtime` instead of `OpenClaw agent`.
+- Local Tools registry now includes Hermes as an agent tool with install/setup/gateway signals.
+
+Verification:
+
+- `hermes --help`, `hermes --version`, `hermes status`, local launchd plist, and HermesDesktop connection files were inspected.
+- Targeted esbuild checks passed for `src/main/services/agent/agent.service.ts`, `src/main/services/clawdesk/settings.service.ts`, `src/main/services/local-tools/local-tools.service.ts`, `src/preload.ts`, and `src/renderer/mini-settings/index.ts`.
+- Targeted esbuild also passed for `src/renderer/menubar-popover/index.tsx`.
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `pnpm -s typecheck` and targeted ESLint still hung locally with no diagnostics and were terminated; this matches the existing local toolchain hang noted in prior entries.
+
+Known limitations / next steps:
+
+- Hermes integration currently uses CLI one-shot mode, not a native Hermes gateway API. This is good enough for first switching UX but may not preserve warm session behavior as well as OpenClaw gateway sessions.
+- The runtime switcher is in Mini Settings only. If a future full settings surface returns, reuse the same IPC and runtime selection data instead of adding a second store.
+- Manual visual validation still needs Sarah to be launched and Mini Settings opened so the runtime card can be checked in the real Electron window.
+
+## 2026-05-06 Answer Overlay Light Redesign
+
+User said the current answer overlay was still ugly, specifically rejecting the black/gold flavor and the strange transparent outer area around the panel. User asked to keep the current interaction model but redesign the visual style toward Hermes, Claude Code, or ChatGPT.
+
+- Design direction:
+  - Generated a new light visual reference with Image 2.0 at `/Users/chaosmac/.codex/generated_images/019de2eb-a507-7ff3-a21a-41583b72e482/ig_0d3a9c84893530a70169fb175da2488191ba6ce764071efc8d.png`.
+  - Moved away from dark grid and black/gold styling toward a clean Claude/ChatGPT-like warm stone surface.
+  - Removed decorative grid texture and gold accents; primary accent is now a quiet blue.
+- Visual changes:
+  - `agent-window.css` now makes the overlay fill the transparent Electron window (`100vw`/`100vh`) so the previous outer transparent gutter should no longer appear.
+  - Reworked the panel surface to a warm light translucent material with neutral borders, readable dark text, and softer native-macOS-style controls.
+  - Kept the existing follow-up interaction and action layout, but restyled buttons, status dots, follow-up composer, code blocks, and scroll affordance for the light theme.
+- Interaction copy:
+  - Replaced the hard-coded `Right Ctrl + Shift` follow-up hint with generic wording: the user's configured Command hotkey should be used for starting a new task from the frontmost app.
+
+Verification:
+
+- Targeted esbuild checks passed for `src/renderer/src/modules/agent/AgentWindow.tsx` and `src/main/windows/agent.ts`.
+- `git diff --check` passed for the touched answer-overlay files.
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `pnpm run install:app` completed successfully after rebuilding a corrupted `node_modules` directory that had again accumulated macOS ` 2` conflict-copy files.
+
+Known limitations / next steps:
+
+- Full `pnpm -s typecheck` again hung with no output and was terminated, matching prior local toolchain behavior.
+- Worktree already had unrelated dirty runtime-switcher and settings files before this UI pass; do not accidentally include those when committing only the overlay redesign.
+- User still needs to trigger an actual Command/Quick Ask to visually inspect the installed light overlay in context.
+
+## 2026-05-06 Context Acquisition and Feishu Workflow Prompt
+
+User reported that Sarah failed the simple workflow "整理当前 Codex 页面并保存到飞书": it told the user to take a screenshot or confirm broad steps instead of actively acquiring context. User clarified the expected interaction: web pages should be read through web-access first, non-web apps should be handled by screenshot recognition, and web-access failures should fall back to screenshot recognition.
+
+- Root cause:
+  - The OpenClaw gateway prompt was much weaker than the full agent prompt and did not enforce the page/screenshot fallback policy.
+  - The old wording still allowed the agent to ask the user for a URL, text body, or screenshot too early.
+  - If Sarah's answer overlay was visible and the user started another Command, context capture could identify Sarah itself as the frontmost app, producing context like `Sarah / ASR Status`.
+- Behavior changes:
+  - Added a shared context acquisition policy in `AgentService`:
+    - URL present: use web-access/browser first, then screenshot fallback.
+    - Browser with no URL: attempt current-tab/browser access, then screenshot fallback.
+    - Non-web app: analyze the captured screenshot directly.
+    - Ask the user for content only when URL, browser access, and screenshot are all unavailable.
+    - For Feishu/Obsidian/file writes, ask only for write authorization or target confirmation, not for manual screenshots or copied page content.
+  - Injected this policy into both `buildGatewayPrompt()` and the full `buildPrompt()` path.
+  - Updated the Feishu decision tree to treat Codex/CodePilot and other non-browser apps as screenshot-first contexts.
+  - `VoiceModeManager.startCommandMode()` now hides the Sarah answer overlay before context capture, waits briefly, then captures the underlying app context.
+- Installed app verification:
+  - `pnpm run install:app` completed successfully and relaunched `/Users/chaosmac/Applications/Sarah.app`.
+  - `codesign --verify --deep --strict --verbose=2 /Users/chaosmac/Applications/Sarah.app` passes.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- Targeted esbuild checks passed for `src/main/services/agent/agent.service.ts` and `src/main/services/push-to-talk/voice-mode-manager.ts`.
+- `git diff --check` passed for the touched prompt/context files.
+
+Known limitations / next steps:
+
+- The screenshot fallback depends on the downstream runtime's ability to inspect an image path. If OpenClaw/Hermes cannot actually read image files in its current toolset, add an explicit Sarah-side OCR/vision preprocessor before spawning the runtime.
+- The worktree already contains unrelated dirty runtime/UI/settings changes. Do not commit the entire dirty tree when saving only this prompt/context fix.
+
+## 2026-05-06 Commercial Polish: Tray, Hermes Tool Scope, Local CLI Clarity
+
+User said the current state is broadly good but found two commercial-readiness issues: clicking the menu bar icon opened both Sarah's custom popover and the native tray menu, and Hermes could answer identity questions but was slow/unclear when operating the computer or calling Feishu CLI.
+
+- Tray/menu fix:
+  - `main.ts` now keeps the native tray menu in memory instead of attaching it with `tray.setContextMenu()` on macOS.
+  - Left click opens only the custom Sarah popover.
+  - Right click hides the custom popover and manually opens the native diagnostics menu.
+  - This addresses the overlapping surfaces shown in the user's screenshots.
+- Hermes runtime tuning:
+  - Hermes is still launched through one-shot mode, but Sarah now passes an explicit toolset list.
+  - Default Hermes toolsets are optimized for faster read/write tasks: `web,terminal,file,vision,skills,todo,messaging`.
+  - Browser automation is enabled only when the instruction clearly asks for clicking, opening, filling, logging in, scrolling, or controlling a browser/page. This should reduce unnecessary Chrome automation for simple "整理当前页面/保存到飞书" tasks.
+  - Agent logs now include the selected runtime and Hermes toolsets.
+- Local Tools clarity:
+  - Local Tools summary now includes exact binary paths in the agent context.
+  - Feishu/Lark detection now exposes the concrete `/opt/homebrew/bin/lark-cli` path and uses correct command families: `docs`, `drive`, `wiki`, and `im`.
+  - The prompt now explicitly says the Feishu CLI is usually `lark-cli`, not `lark` or `feishu`, and tells the runtime to use the exact detected binary path.
+  - Added prompt guidance to prefer API/CLI/text extraction before slow GUI/browser automation.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- Targeted esbuild checks passed for `src/main.ts`, `src/main/services/agent/agent.service.ts`, and `src/main/services/local-tools/local-tools.service.ts`.
+- `git diff --check` passed for the touched files.
+- `pnpm run install:app` completed successfully, relaunched `/Users/chaosmac/Applications/Sarah.app`, and `codesign --verify --deep --strict --verbose=2` passes.
+
+Known limitations / next steps:
+
+- Hermes one-shot mode still returns final output only; Sarah cannot show true step-by-step Hermes tool progress unless Hermes exposes streaming/tool events or Sarah switches to a different Hermes integration surface.
+- For a polished commercial release, add a runtime progress surface that distinguishes "reading page", "running CLI", "waiting for authorization", and "writing to destination" instead of showing a generic thinking state.
+
+## 2026-05-08 Autonomous Review and Debug Loop
+
+User asked for autonomous review/debug cycles until no reproducible bugs remained.
+
+- Started from Trellis workflow/context, read frontend/backend/cross-layer guidelines, and inspected the existing dirty worktree without reverting prior user/agent changes.
+- Found one failing test in `AgentService`: the ENOENT assertion still expected the old lowercase `openclaw CLI 未找到` message after the runtime-aware OpenClaw/Hermes error text changed.
+- Fixed the test to assert the new runtime-aware OpenClaw error and Settings-switch guidance.
+- Found and fixed a real abort race introduced by async runtime resolution: if `abort()` happened after `execute()` marked the service running but before the runtime process was spawned, the old run could still spawn. `AgentService` now checks `runVersion` and `running` immediately after runtime resolution and exits before spawning stale runs.
+- Added a regression test covering abort during runtime resolution so future runtime-selection changes do not reintroduce that stale-spawn path.
+- Updated Mini Settings health copy to be runtime-neutral: users are told to connect Hermes or OpenClaw instead of only OpenClaw.
+
+Verification:
+
+- `pnpm -s test` passed 43/43 tests.
+- `pnpm -s typecheck` passed.
+- `pnpm -s lint` passed.
+- `CI=true pnpm -s verify:mini` passed 72/72.
+- `git diff --check` passed.
+- Vite production builds passed for main/preload-equivalent configs plus renderer, floating, mini settings, and menubar popover entries. Existing Vite CJS/lucide `"use client"` warnings are dependency/build warnings, not failures.
+- `pnpm run install:app` completed successfully, packaged, signed, installed, and relaunched `/Users/chaosmac/Applications/Sarah.app`.
+
+Known limitations / next steps:
+
+- Manual in-app validation is still useful for visual behavior: open Mini Settings, click Hermes/OpenClaw runtime cards, and trigger Command/Quick Ask from a frontmost app.
+- Hermes integration still uses one-shot final output only; progress/streaming remains a product improvement rather than a local test failure.
+
+## 2026-05-09 Gateway Streaming and First-Run Onboarding
+
+User asked whether the remaining TODOs were still open: Hermes only had one-shot final output/no progress, first-run onboarding was not formal enough, `~/.feishu-agent` had migrated to `~/.sarah`, and Sarah still needed a real streaming Gateway WebSocket client instead of a CLI wrapper. User then asked to implement, review, and debug.
+
+- Status confirmed:
+  - `~/.feishu-agent -> ~/.sarah` migration was already implemented in `MemoryService.ensureDirectories()`.
+  - First-run onboarding was still basic and lacked a focused Gateway/demo step.
+  - OpenClaw execution still used `openclaw gateway call agent --expect-final`, so it waited for a final CLI result.
+  - Hermes still has no confirmed local streaming agent WebSocket API in the inspected CLI; Sarah keeps Hermes as a CLI fallback and labels it honestly.
+- Gateway streaming implementation:
+  - Added `src/main/services/agent/openclaw-gateway-client.ts`, a native WebSocket client for the local OpenClaw Gateway.
+  - The client reads `~/.openclaw/openclaw.json`, connects to `ws://127.0.0.1:<gateway-port>`, performs the protocol v3 `connect` handshake with `tool-events`, sends `agent` requests, ignores the initial `accepted` response, and waits for the final response.
+  - `agent` event `stream:"assistant"` deltas are forwarded immediately to Sarah's answer overlay.
+  - Non-assistant Gateway streams are forwarded as `tool_use` progress chunks so the UI can show lifecycle/tool progress without appending it to the answer text.
+  - Abort now sends `sessions.abort` over the same WebSocket protocol instead of spawning `openclaw gateway call`.
+  - `SARAH_OPENCLAW_WS_AGENT=0` is available as a fallback to the old CLI wrapper path for debugging.
+- UI/onboarding:
+  - Answer overlay now tracks progress text from `tool_use` chunks (`Connecting`, accepted, tool/lifecycle updates) separately from final answer content.
+  - Hermes runs now emit an explicit `Starting Hermes CLI fallback` progress chunk, but still do not claim native token/tool streaming.
+  - First-run welcome checklist now includes microphone, Accessibility, Input Monitoring, speech provider, agent runtime, Gateway check, and local tools.
+  - Welcome card now includes demo actions for Dictate, Command, and rerunning checks.
+  - Local Tools now describes OpenClaw agent capability as Gateway WebSocket streaming; Hermes is described as a CLI fallback.
+- Review/debug follow-up:
+  - Tightened Gateway event filtering by using the request `idempotencyKey` as the initial run id and updating it from the `accepted` response, preventing stale events from another run from leaking into the UI.
+  - Added a regression test proving OpenClaw Gateway WebSocket deltas stream without spawning the CLI wrapper.
+
+Verification:
+
+- `pnpm typecheck` passed.
+- `pnpm test` passed 44/44 tests.
+- `pnpm lint` passed.
+- Initial `pnpm verify:mini` failed only because packaged output was missing; ran `pnpm package`, then `pnpm verify:mini` passed 87/87 checks.
+
+Known limitations / next steps:
+
+- Hermes remains a CLI fallback (`hermes --oneshot`) because no native local streaming Hermes agent API was confirmed. If Hermes exposes one later, add a Hermes-specific streaming transport behind the same `AgentService` chunk contract.
+- Manual visual validation is still useful: open Mini Settings on a fresh profile state, confirm the welcome checklist/demo layout, then trigger Command/Quick Ask and confirm progress text appears before/during streamed OpenClaw output.
+
+## 2026-05-09 README Product Screenshots
+
+User asked whether Sarah can manipulate the local computer to test the project, capture screenshots, and add product-relevant README images for the recording flow, Command mode, and Quick Ask mode.
+
+- Added a repeatable screenshot harness:
+  - `scripts/capture-readme-screenshots.cjs` launches Electron against the built `.vite` renderer output.
+  - It uses the real preload/React/CSS bundles and mock IPC payloads to render deterministic README states without requiring live microphone input or capturing the user's desktop.
+  - Added `pnpm screenshots:readme`.
+- Generated PNG assets in `docs/images/`:
+  - `product-recording.png` — recording HUD with waveform/cancel/confirm.
+  - `product-command.png` — Command mode answer overlay with current-app context and Feishu-oriented action copy.
+  - `product-quick-ask.png` — Quick Ask answer overlay.
+  - `product-onboarding.png` — first-run onboarding with permission/runtime/Gateway/demo checks.
+- README updates:
+  - Replaced the old "What it looks like" section with a product walkthrough.
+  - Added first-run onboarding, Dictation/recording, Command mode, Quick Ask mode, and retained menubar/control-center references.
+  - Documented `SARAH_OPENCLAW_WS_AGENT`.
+- Debug fixes found while generating screenshots:
+  - Mini Settings now tolerates missing optional display strings in `escapeHtml()`, gateway URL labels, runtime detail labels, and local tool health labels instead of throwing during render.
+  - Mini Settings health/hotkey copy now truncates cleanly inside compact cards instead of overflowing the panel.
+
+Verification:
+
+- `pnpm package` passed and regenerated the renderer bundles used by the screenshot harness.
+- `pnpm screenshots:readme` passed and wrote all four PNG files.
+- `pnpm typecheck` passed.
+- `pnpm test` passed 44/44 tests.
+- `pnpm lint` passed.
+- `pnpm verify:mini` passed 87/87 checks.
+
+Known limitations / next steps:
+
+- The screenshot harness intentionally uses deterministic mock IPC payloads. It is suitable for README images and renderer regression smoke coverage, but it does not replace one manual microphone hotkey pass on a freshly installed app.

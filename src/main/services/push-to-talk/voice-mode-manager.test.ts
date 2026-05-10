@@ -14,10 +14,13 @@ const {
     register: vi.fn(),
     unregister: vi.fn(),
     cancelActiveHandler: vi.fn(),
+    setTriggerKeycode: vi.fn(),
   },
   mockAsrService: {
     start: vi.fn().mockResolvedValue(undefined),
     stop: vi.fn().mockResolvedValue({ text: 'hello world' }),
+    on: vi.fn(),
+    removeAllListeners: vi.fn(),
   },
   mockFloatingWindow: {
     sendVoiceState: vi.fn(),

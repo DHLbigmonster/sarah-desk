@@ -27,12 +27,16 @@ const config: ForgeConfig = {
     executableName: 'Sarah',
     appBundleId: 'com.sarah.app',
     icon: './assets/icon',
-    // Bundle the tray icon next to the packaged app. main.ts reads it via
-    // `process.resourcesPath/assets/tray-icon.png` when app.isPackaged is true.
-    extraResource: ['./assets/tray-icon.png'],
+    // Bundle the tray icon and env config next to the packaged app.
+    // main.ts reads them via process.resourcesPath when app.isPackaged is true.
+    extraResource: ['./assets/tray-icon.png', './.env'],
   },
   rebuildConfig: {
-    force: true,
+    // uiohook-napi and @xitanggg/node-insert-text both ship N-API prebuilds
+    // (ABI-stable across Node/Electron), loaded at runtime by node-gyp-build.
+    // Skip electron-rebuild entirely — node-gyp from-source compilation of
+    // libuiohook times out on header copies. Empty onlyModules disables rebuild.
+    onlyModules: [],
   },
   hooks: {
     // Copy native modules after packaging
@@ -92,12 +96,12 @@ const config: ForgeConfig = {
           config: 'vite.floating.config.ts',
         },
         {
-          name: 'clawdesk_window',
-          config: 'vite.clawdesk.config.ts',
-        },
-        {
           name: 'mini_settings_window',
           config: 'vite.mini-settings.config.ts',
+        },
+        {
+          name: 'menubar_popover_window',
+          config: 'vite.menubar-popover.config.ts',
         },
       ],
     }),

@@ -24,16 +24,35 @@ import type {
   ClawDeskSkillDetail,
   ClawDeskSettingsOverview,
   ClawDeskThemeMode,
+  AgentRuntimeId,
+  AgentRuntimeConnectResult,
+  AgentRuntimeSelection,
   HotkeyConfig,
   HotkeyCheckResult,
   OpenClawStatus,
 } from './shared/types/clawdesk-settings';
 import type { MiniStatus } from './shared/types/mini';
+import type {
+  LocalToolApprovalScope,
+  LocalToolExecutionRequest,
+  LocalToolExecutionResult,
+  LocalToolId,
+  LocalToolsSnapshot,
+} from './shared/types/local-tools';
+import type {
+  ASRApi,
+  FloatingWindowApi,
+  AgentApi,
+  PushToTalkApi,
+  ClawDeskApi,
+  LocalToolsApi,
+  MiniApi,
+} from './shared/types/ipc-api';
 
 /**
  * ASR API exposed to the renderer process.
  */
-const asrApi = {
+const asrApi: ASRApi = {
   start: (config?: Partial<ASRConfig>): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.ASR.START, config),
 
@@ -80,7 +99,7 @@ const asrApi = {
 /**
  * Floating Window API exposed to the renderer process.
  */
-const floatingWindowApi = {
+const floatingWindowApi: FloatingWindowApi = {
   show: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.FLOATING_WINDOW.SHOW),
 
@@ -99,7 +118,7 @@ const floatingWindowApi = {
 /**
  * Agent API exposed to the renderer process.
  */
-const agentApi = {
+const agentApi: AgentApi = {
   /**
    * Hide/close the agent window.
    */
@@ -249,7 +268,7 @@ const agentApi = {
   },
 };
 
-const pushToTalkApi = {
+const pushToTalkApi: PushToTalkApi = {
   cancel: (): void => { ipcRenderer.send(IPC_CHANNELS.PUSH_TO_TALK.CANCEL); },
   confirm: (): void => { ipcRenderer.send(IPC_CHANNELS.PUSH_TO_TALK.CONFIRM); },
   onState: (callback: (state: VoiceOverlayState) => void): (() => void) => {
@@ -261,7 +280,7 @@ const pushToTalkApi = {
   },
 };
 
-const clawDeskApi = {
+const clawDeskApi: ClawDeskApi = {
   getStatus: (): Promise<ClawDeskStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_STATUS),
 
@@ -324,13 +343,54 @@ const clawDeskApi = {
 
   getOpenClawStatus: (): Promise<OpenClawStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_OPENCLAW_STATUS),
+
+  getAgentRuntimeSelection: (): Promise<AgentRuntimeSelection> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.GET_AGENT_RUNTIME_SELECTION),
+
+  setAgentRuntime: (runtimeId: AgentRuntimeId): Promise<AgentRuntimeSelection> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.SET_AGENT_RUNTIME, runtimeId),
+
+  connectAgentRuntime: (runtimeId: AgentRuntimeId): Promise<AgentRuntimeConnectResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.CONNECT_AGENT_RUNTIME, runtimeId),
 };
 
-const miniApi = {
+const localToolsApi: LocalToolsApi = {
+  getSnapshot: (): Promise<LocalToolsSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.GET_SNAPSHOT),
+  setApproval: (
+    toolId: LocalToolId,
+    capabilityId: string,
+    scope: LocalToolApprovalScope,
+  ): Promise<LocalToolsSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.SET_APPROVAL, { toolId, capabilityId, scope }),
+  revokeApproval: (
+    toolId: LocalToolId,
+    capabilityId: string,
+  ): Promise<LocalToolsSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.REVOKE_APPROVAL, { toolId, capabilityId }),
+  execute: (request: LocalToolExecutionRequest): Promise<LocalToolExecutionResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.LOCAL_TOOLS.EXECUTE, request),
+};
+
+const miniApi: MiniApi = {
   getStatus: (): Promise<MiniStatus> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.GET_STATUS),
+  hidePopover: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.HIDE_POPOVER),
+  showSettings: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.SHOW_SETTINGS),
+  openPermissions: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.OPEN_PERMISSIONS),
+  toggleDictation: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.TOGGLE_DICTATION),
+  toggleCommand: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.TOGGLE_COMMAND),
+  quit: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.QUIT),
   showLogs: (): Promise<{ success: boolean; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.SHOW_LOGS),
+  completeOnboarding: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.COMPLETE_ONBOARDING),
   testRecorderWindow: (): Promise<{ success: boolean; detail: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.TEST_RECORDER_WINDOW),
   testIpc: (): Promise<{ success: boolean; detail: string }> =>
@@ -361,5 +421,6 @@ contextBridge.exposeInMainWorld('api', {
   agent: agentApi,
   pushToTalk: pushToTalkApi,
   clawDesk: clawDeskApi,
+  localTools: localToolsApi,
   mini: miniApi,
 });

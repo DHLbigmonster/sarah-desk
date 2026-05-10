@@ -1,5 +1,6 @@
-import { app } from 'electron';
+import { app, shell } from 'electron';
 import fs from 'node:fs';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
@@ -15,6 +16,10 @@ import type {
   ClawDeskSkillItem,
   ClawDeskThemeMode,
   ClawDeskVersionInfo,
+  AgentRuntimeConnectResult,
+  AgentRuntimeId,
+  AgentRuntimeSelection,
+  AgentRuntimeStatus,
   HotkeyConfig,
   HotkeyCheckResult,
   OpenClawStatus,
@@ -25,8 +30,25 @@ const execFileAsync = promisify(execFile);
 const logger = log.scope('clawdesk-settings');
 
 const SETTINGS_FILENAME = 'clawdesk-settings.json';
+const DEFAULT_OPENCLAW_PORT = 18789;
+const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), '.openclaw', 'openclaw.json');
 const PROJECT_ENV_PATH = path.join(process.cwd(), '.env');
 const PROJECT_ENV_EXAMPLE_PATH = path.join(process.cwd(), '.env.example');
+const EXTRA_BIN_DIRS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/opt/node22/bin',
+  `${os.homedir()}/.local/bin`,
+  `${os.homedir()}/.volta/bin`,
+  `${os.homedir()}/.bun/bin`,
+];
+const HERMES_HOME = path.join(os.homedir(), '.hermes');
+const HERMES_DESKTOP_SUPPORT = path.join(os.homedir(), 'Library', 'Application Support', 'HermesDesktop');
+const HERMES_LAUNCH_AGENT = path.join(os.homedir(), 'Library', 'LaunchAgents', 'ai.hermes.gateway.plist');
+const HERMES_DESKTOP_APP_CANDIDATES = [
+  '/Applications/HermesDesktop.app',
+  path.join(os.homedir(), 'Applications', 'HermesDesktop.app'),
+];
 const SKILL_SOURCES = [
   { source: 'codex' as const, dir: path.join(os.homedir(), '.codex', 'skills') },
   { source: 'agents' as const, dir: path.join(os.homedir(), '.agents', 'skills') },
@@ -231,6 +253,26 @@ const CLI_CATALOG: ClawDeskCliToolDefinition[] = [
     ],
   },
   {
+    id: 'hermes',
+    name: 'Hermes CLI',
+    description: 'Hermes 的本地 agent 运行时，可作为 Sarah Command / Quick Ask 后端。',
+    category: 'agent',
+    command: 'hermes',
+    versionArgs: [['--version'], ['version']],
+    recommended: true,
+    source: 'Hermes desktop/runtime integration',
+    installCommand: null,
+    detailIntro: 'Hermes 提供本地 CLI、Desktop 配置和 gateway 服务。Sarah 可以检测已有安装，并用 `hermes --oneshot` 执行一次性语音任务。',
+    docsUrl: null,
+    repoUrl: null,
+    authRequired: true,
+    postInstallNotes: [
+      '安装后运行 hermes setup 或 hermes model 完成模型配置。',
+      '验证安装：which hermes && hermes status',
+      '如已安装 HermesDesktop，Sarah 会读取其本地连接配置作为安装信号。',
+    ],
+  },
+  {
     id: 'lark-cli',
     name: 'Lark CLI',
     description: '飞书/Lark 工作流命令行工具，适合多种办公自动化场景。',
@@ -266,6 +308,7 @@ const SYSTEM_RESERVED_ACCELERATORS = new Set([
 interface StoredSettings {
   themeMode: ClawDeskThemeMode;
   hotkeyConfig?: HotkeyConfig;
+  selectedAgentRuntime?: AgentRuntimeId;
 }
 
 function getSettingsPath(): string {
@@ -380,6 +423,10 @@ async function resolveBinary(binary: string): Promise<string | null> {
     const resolved = stdout.trim();
     return resolved || null;
   } catch {
+    for (const dir of EXTRA_BIN_DIRS) {
+      const candidate = path.join(dir, binary);
+      if (fs.existsSync(candidate)) return candidate;
+    }
     return null;
   }
 }
@@ -395,6 +442,206 @@ async function resolveVersion(binaryPath: string, commands: string[][]): Promise
     }
   }
   return null;
+}
+
+function readOpenClawGatewayConfig(): { configFound: boolean; tokenConfigured: boolean; port: number } {
+  try {
+    const raw = fs.readFileSync(OPENCLAW_CONFIG_PATH, 'utf8');
+    const config = JSON.parse(raw) as { gateway?: { port?: number; auth?: { token?: string } } };
+    return {
+      configFound: true,
+      tokenConfigured: Boolean(config.gateway?.auth?.token?.trim()),
+      port: config.gateway?.port ?? DEFAULT_OPENCLAW_PORT,
+    };
+  } catch {
+    return {
+      configFound: false,
+      tokenConfigured: false,
+      port: DEFAULT_OPENCLAW_PORT,
+    };
+  }
+}
+
+function probePort(port: number, timeoutMs = 700): Promise<boolean> {
+  return new Promise((resolveProbe) => {
+    const socket = new net.Socket();
+    const finish = (value: boolean): void => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolveProbe(value);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    socket.connect(port, '127.0.0.1');
+  });
+}
+
+function shouldUseOpenClawGatewayAgent(): boolean {
+  const value = process.env.SARAH_OPENCLAW_GATEWAY_AGENT;
+  if (!value) return true;
+  return !['0', 'false', 'off', 'no'].includes(value.toLowerCase());
+}
+
+function parseHermesAuthenticated(output: string): boolean {
+  const lower = output.toLowerCase();
+  const providerConfigured = /provider:\s+(?!\(?not\s+set\)?)([^\n]+)/i.test(output);
+  const modelConfigured = /model:\s+(?!\(?not\s+set\)?)([^\n]+)/i.test(output);
+  const hasUsableKey = /✓/.test(output) || /configured/i.test(output);
+  return (providerConfigured || modelConfigured) && hasUsableKey && !/no api keys configured/.test(lower);
+}
+
+async function getOpenClawRuntimeStatus(): Promise<AgentRuntimeStatus> {
+  const binaryPath = await resolveBinary('openclaw');
+  const gateway = readOpenClawGatewayConfig();
+  const gatewayReachable = gateway.configFound && gateway.tokenConfigured
+    ? await probePort(gateway.port)
+    : false;
+  if (!binaryPath) {
+    return {
+      id: 'openclaw',
+      name: 'OpenClaw',
+      installed: false,
+      path: null,
+      version: null,
+      authenticated: false,
+      ready: false,
+      detail: 'OpenClaw CLI not found. Dictation still works; Command / Quick Ask need an agent runtime.',
+      setupHint: 'Install OpenClaw, then run `openclaw onboard` and `openclaw gateway start`.',
+    };
+  }
+
+  const version = await resolveVersion(binaryPath, [['--version'], ['version']]);
+  let authenticated = false;
+  try {
+    const { stdout } = await execFileAsync(binaryPath, ['whoami'], { timeout: 5000 });
+    authenticated = stdout.trim().length > 0 && !stdout.toLowerCase().includes('not logged in');
+  } catch {
+    // whoami failed; keep installed signal, but mark auth incomplete.
+  }
+
+  const usesGateway = shouldUseOpenClawGatewayAgent();
+  const ready = usesGateway ? gatewayReachable : authenticated;
+  const detail = ready
+    ? usesGateway
+      ? `OpenClaw gateway is reachable on port ${gateway.port}.`
+      : 'OpenClaw is installed and authenticated.'
+    : !gateway.configFound
+      ? 'OpenClaw is installed, but gateway config is missing.'
+      : !gateway.tokenConfigured
+        ? 'OpenClaw is installed, but gateway token is missing.'
+        : `OpenClaw gateway is not reachable on port ${gateway.port}.`;
+
+  return {
+    id: 'openclaw',
+    name: 'OpenClaw',
+    installed: true,
+    path: binaryPath,
+    version,
+    authenticated,
+    ready,
+    detail,
+    setupHint: ready ? null : 'Run `openclaw onboard`, then `openclaw gateway start`.',
+  };
+}
+
+async function getHermesRuntimeStatus(): Promise<AgentRuntimeStatus> {
+  const binaryPath = await resolveBinary('hermes');
+  const desktopConfigFound = fs.existsSync(path.join(HERMES_DESKTOP_SUPPORT, 'connections.json'));
+  const launchAgentFound = fs.existsSync(HERMES_LAUNCH_AGENT);
+  const hermesHomeFound = fs.existsSync(HERMES_HOME);
+
+  if (!binaryPath) {
+    return {
+      id: 'hermes',
+      name: 'Hermes',
+      installed: desktopConfigFound || hermesHomeFound,
+      path: null,
+      version: null,
+      authenticated: false,
+      ready: false,
+      detail: desktopConfigFound || hermesHomeFound
+        ? 'Hermes files were found, but the `hermes` CLI is not on the detected PATH.'
+        : 'Hermes was not detected.',
+      setupHint: 'Install Hermes CLI or add it to ~/.local/bin, /opt/homebrew/bin, or /usr/local/bin.',
+    };
+  }
+
+  const version = await resolveVersion(binaryPath, [['--version'], ['version']]);
+  let authenticated = false;
+  try {
+    const { stdout, stderr } = await execFileAsync(binaryPath, ['status'], {
+      timeout: 5000,
+      env: {
+        ...process.env,
+        PATH: [...new Set([...(process.env.PATH ?? '').split(':').filter(Boolean), ...EXTRA_BIN_DIRS])].join(':'),
+      },
+    });
+    authenticated = parseHermesAuthenticated(`${stdout}\n${stderr}`);
+  } catch {
+    // status can fail while the install is still useful; keep auth incomplete.
+  }
+
+  const signals = [
+    desktopConfigFound ? 'Desktop config found' : null,
+    launchAgentFound ? 'gateway service installed' : null,
+    hermesHomeFound ? '~/.hermes found' : null,
+  ].filter(Boolean).join(', ');
+
+  return {
+    id: 'hermes',
+    name: 'Hermes',
+    installed: true,
+    path: binaryPath,
+    version,
+    authenticated,
+    ready: authenticated,
+    detail: authenticated
+      ? `Hermes is installed and configured${signals ? ` (${signals})` : ''}.`
+      : `Hermes is installed${signals ? ` (${signals})` : ''}, but model/auth setup still needs confirmation.`,
+    setupHint: authenticated ? null : 'Run `hermes setup`, `hermes model`, or `hermes status` to finish configuration.',
+  };
+}
+
+function chooseEffectiveRuntime(selected: AgentRuntimeId | undefined, runtimes: AgentRuntimeStatus[]): AgentRuntimeId | null {
+  const selectedRuntime = selected ? runtimes.find((runtime) => runtime.id === selected) : null;
+  if (selectedRuntime?.ready) return selectedRuntime.id;
+  return runtimes.find((runtime) => runtime.id === 'openclaw' && runtime.ready)?.id
+    ?? runtimes.find((runtime) => runtime.ready)?.id
+    ?? selectedRuntime?.id
+    ?? runtimes.find((runtime) => runtime.installed)?.id
+    ?? null;
+}
+
+async function openTerminalCommand(command: string): Promise<void> {
+  const script = [
+    'tell application "Terminal"',
+    'activate',
+    `do script ${JSON.stringify(command)}`,
+    'end tell',
+  ].join('\n');
+  await execFileAsync('osascript', ['-e', script], { timeout: 4000 });
+}
+
+async function openHermesSetup(binaryPath: string | null): Promise<string> {
+  const desktopApp = HERMES_DESKTOP_APP_CANDIDATES.find((candidate) => fs.existsSync(candidate));
+  if (desktopApp) {
+    const error = await shell.openPath(desktopApp);
+    if (!error) return 'Opened Hermes Desktop so the user can finish model/auth setup.';
+  }
+
+  const command = binaryPath ? `${JSON.stringify(binaryPath)} setup` : 'hermes setup';
+  await openTerminalCommand(command);
+  return 'Opened Hermes setup in Terminal.';
+}
+
+async function openOpenClawSetup(binaryPath: string | null): Promise<string> {
+  const command = binaryPath
+    ? `${JSON.stringify(binaryPath)} onboard; ${JSON.stringify(binaryPath)} gateway start`
+    : 'openclaw onboard; openclaw gateway start';
+  await openTerminalCommand(command);
+  return 'Opened OpenClaw onboarding and gateway start in Terminal.';
 }
 
 export class ClawDeskSettingsService {
@@ -417,6 +664,10 @@ export class ClawDeskSettingsService {
       return {
         themeMode: parsed.themeMode ?? 'system',
         hotkeyConfig,
+        selectedAgentRuntime:
+          parsed.selectedAgentRuntime === 'openclaw' || parsed.selectedAgentRuntime === 'hermes'
+            ? parsed.selectedAgentRuntime
+            : undefined,
       };
     } catch {
       return { themeMode: 'system' };
@@ -459,6 +710,77 @@ export class ClawDeskSettingsService {
     const current = this.readSettings();
     this.writeSettings({ ...current, hotkeyConfig: config });
     return config;
+  }
+
+  getSelectedAgentRuntime(): AgentRuntimeId | null {
+    return this.readSettings().selectedAgentRuntime ?? null;
+  }
+
+  setSelectedAgentRuntime(runtimeId: AgentRuntimeId): AgentRuntimeId {
+    const current = this.readSettings();
+    this.writeSettings({ ...current, selectedAgentRuntime: runtimeId });
+    return runtimeId;
+  }
+
+  async getAgentRuntimeSelection(): Promise<AgentRuntimeSelection> {
+    const settings = this.readSettings();
+    const runtimes = await Promise.all([
+      getOpenClawRuntimeStatus(),
+      getHermesRuntimeStatus(),
+    ]);
+    return {
+      selected: settings.selectedAgentRuntime ?? null,
+      effective: chooseEffectiveRuntime(settings.selectedAgentRuntime, runtimes),
+      runtimes,
+    };
+  }
+
+  async connectAgentRuntime(runtimeId: AgentRuntimeId): Promise<AgentRuntimeConnectResult> {
+    this.setSelectedAgentRuntime(runtimeId);
+
+    let selection = await this.getAgentRuntimeSelection();
+    let runtime = selection.runtimes.find((item) => item.id === runtimeId);
+    if (runtime?.ready) {
+      return {
+        success: true,
+        runtimeId,
+        detail: `${runtime.name} is selected and ready.`,
+        selection,
+      };
+    }
+
+    let detail = '';
+    try {
+      if (runtimeId === 'hermes') {
+        detail = await openHermesSetup(runtime?.path ?? null);
+      } else {
+        if (runtime?.path) {
+          await execFileAsync(runtime.path, ['gateway', 'start'], {
+            timeout: 8000,
+            env: {
+              ...process.env,
+              PATH: [...new Set([...(process.env.PATH ?? '').split(':').filter(Boolean), ...EXTRA_BIN_DIRS])].join(':'),
+            },
+          }).catch(() => undefined);
+        }
+        selection = await this.getAgentRuntimeSelection();
+        runtime = selection.runtimes.find((item) => item.id === runtimeId);
+        detail = runtime?.ready
+          ? 'Started OpenClaw gateway and selected OpenClaw.'
+          : await openOpenClawSetup(runtime?.path ?? null);
+      }
+    } catch (error) {
+      detail = error instanceof Error ? error.message : String(error);
+    }
+
+    selection = await this.getAgentRuntimeSelection();
+    runtime = selection.runtimes.find((item) => item.id === runtimeId);
+    return {
+      success: Boolean(runtime?.ready),
+      runtimeId,
+      detail: runtime?.ready ? `${runtime.name} is selected and ready.` : detail || runtime?.setupHint || 'Setup step opened.',
+      selection,
+    };
   }
 
   async checkToggleWindowConflict(accelerator: string, currentAccelerator: string): Promise<HotkeyCheckResult> {
@@ -727,22 +1049,13 @@ export class ClawDeskSettingsService {
   }
 
   async getOpenClawStatus(): Promise<OpenClawStatus> {
-    const binaryPath = await resolveBinary('openclaw');
-    if (!binaryPath) {
-      return { installed: false, path: null, version: null, authenticated: false };
-    }
-
-    const version = await resolveVersion(binaryPath, [['--version'], ['version']]);
-
-    let authenticated = false;
-    try {
-      const { stdout } = await execFileAsync(binaryPath, ['whoami'], { timeout: 5000 });
-      authenticated = stdout.trim().length > 0 && !stdout.toLowerCase().includes('not logged in');
-    } catch {
-      // whoami failed — assume not authenticated
-    }
-
-    return { installed: true, path: binaryPath, version, authenticated };
+    const status = await getOpenClawRuntimeStatus();
+    return {
+      installed: status.installed,
+      path: status.path,
+      version: status.version,
+      authenticated: status.authenticated,
+    };
   }
 }
 

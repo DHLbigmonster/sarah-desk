@@ -30,20 +30,19 @@ describe('DictationRefinementService — mode routing', () => {
 
   // ── Length-based routing ───────────────────────────────────────────────────
 
-  it('uses fast_clean for short plain text (< 72 chars)', () => {
-    expect(chooseMode(svc, '今天天气不错，去超市买点东西。')).toBe('fast_clean_model');
+  it('uses fast_clean for short plain text (< 28 chars)', () => {
+    expect(chooseMode(svc, '今天天气不错，去超市买。')).toBe('fast_clean_model');
   });
 
-  it('uses fast_clean for medium-length plain text between thresholds', () => {
-    const text = '今天我想总结一下工作情况，项目进展还算顺利，没有太多问题。';
-    expect(text.length).toBeLessThan(96);
-    expect(chooseMode(svc, text)).toBe('fast_clean_model');
+  it('uses smart_structured for medium-length plain text (>= 40 chars)', () => {
+    const text = '今天我想总结一下本周工作情况，项目进展还算顺利，团队配合也比较默契，没有什么大问题需要单独处理。';
+    expect(text.length).toBeGreaterThanOrEqual(40);
+    expect(chooseMode(svc, text)).toBe('smart_structured_model');
   });
 
-  it('uses smart_structured for text longer than 96 chars', () => {
-    // >96 ASCII chars — unambiguous length, no list/restart patterns
-    const longText = 'Today I want to review what happened this week. We made very good progress on multiple fronts, okay!!';
-    expect(longText.length).toBeGreaterThan(96);
+  it('uses smart_structured for text longer than 40 chars', () => {
+    const longText = 'Today I want to review what happened this week. We made progress.';
+    expect(longText.length).toBeGreaterThanOrEqual(40);
     expect(chooseMode(svc, longText)).toBe('smart_structured_model');
   });
 
@@ -69,18 +68,19 @@ describe('DictationRefinementService — mode routing', () => {
     expect(chooseMode(svc, text)).toBe('smart_structured_model');
   });
 
-  it('uses smart_structured when heavy fillers appear 3+ times', () => {
-    const text = '嗯这个就是那个啊比较难说。'; // 嗯、就是、啊 = 3 fillers
+  it('uses smart_structured when fillers appear in medium-length text', () => {
+    // > FAST_CLEAN_MAX_LENGTH (28) plus filler markers triggers smart polish.
+    const text = '嗯这个就是那个啊比较难说嗯就是确实那个不太好讲就是说嗯不太确定。';
+    expect(text.length).toBeGreaterThan(28);
     expect(chooseMode(svc, text)).toBe('smart_structured_model');
   });
 
   // ── Boundary: text exactly at threshold ───────────────────────────────────
 
-  it('uses fast_clean for text in 72–95 char range with no structural signals', () => {
-    // Explicit 80-char ASCII string — in range, no list/restart/heavy-filler patterns
-    const text = 'The meeting went well and we covered all agenda items without any major issues.';
-    expect(text.length).toBeGreaterThanOrEqual(72);
-    expect(text.length).toBeLessThan(96);
+  it('uses fast_clean for short plain text below the structured threshold', () => {
+    // Below SMART_STRUCTURED_MIN_LENGTH (40) and no list/restart/filler patterns.
+    const text = 'Short clean dictation note here please.';
+    expect(text.length).toBeLessThan(40);
     expect(chooseMode(svc, text)).toBe('fast_clean_model');
   });
 });

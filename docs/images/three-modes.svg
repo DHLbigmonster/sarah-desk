@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 360" width="980" height="360" font-family="-apple-system, 'SF Pro Text', system-ui, sans-serif">
+  <defs>
+    <linearGradient id="modesBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d0f12"/>
+      <stop offset="1" stop-color="#15171a"/>
+    </linearGradient>
+    <linearGradient id="dictGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1f262e"/>
+      <stop offset="1" stop-color="#0e1015"/>
+    </linearGradient>
+    <linearGradient id="cmdGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#262019"/>
+      <stop offset="1" stop-color="#15110b"/>
+    </linearGradient>
+    <linearGradient id="askGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2a25"/>
+      <stop offset="1" stop-color="#0c1612"/>
+    </linearGradient>
+    <pattern id="modesGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M20 0H0V20" fill="none" stroke="#fff" stroke-width="0.5" stroke-opacity="0.025"/>
+    </pattern>
+  </defs>
+
+  <rect width="980" height="360" fill="url(#modesBg)"/>
+  <rect width="980" height="360" fill="url(#modesGrid)"/>
+
+  <text x="490" y="38" font-size="20" font-weight="700" fill="#fafaf6" text-anchor="middle">Three Modes, One Hotkey</text>
+  <text x="490" y="58" font-size="12" fill="#9ca09b" text-anchor="middle">Pick your trigger key. Sarah derives the rest from modifiers.</text>
+
+  <!-- Dictation card -->
+  <g transform="translate(40, 100)">
+    <rect width="290" height="220" rx="14" fill="url(#dictGrad)" stroke="#5cb3ff" stroke-opacity="0.35" stroke-width="1.5"/>
+    <text x="22" y="32" font-size="11" letter-spacing="2.2" fill="#5cb3ff" font-weight="700">DICTATION</text>
+    <text x="22" y="64" font-size="22" fill="#fafaf6" font-weight="700">Speak. See text.</text>
+    <text x="22" y="92" font-size="12" fill="#9ca09b">Press your trigger key once to start,</text>
+    <text x="22" y="108" font-size="12" fill="#9ca09b">again to stop. Text appears at the cursor</text>
+    <text x="22" y="124" font-size="12" fill="#9ca09b">in any app — Notes, Mail, IDE, browser.</text>
+
+    <!-- Hotkey display -->
+    <g transform="translate(22, 152)">
+      <rect width="78" height="36" rx="9" fill="#0a0d10" stroke="#5cb3ff" stroke-opacity="0.45"/>
+      <text x="39" y="23" font-size="12" fill="#9ec5f0" text-anchor="middle" font-family="ui-monospace, 'SF Mono', monospace" font-weight="600">Right Ctrl</text>
+    </g>
+    <text x="110" y="174" font-size="12" fill="#7d8480" font-weight="500">tap to start, tap to stop</text>
+
+    <!-- Sample line -->
+    <line x1="22" y1="200" x2="268" y2="200" stroke="#fff" stroke-opacity="0.08"/>
+  </g>
+
+  <!-- Command card -->
+  <g transform="translate(346, 100)">
+    <rect width="290" height="220" rx="14" fill="url(#cmdGrad)" stroke="#d7bc84" stroke-opacity="0.35" stroke-width="1.5"/>
+    <text x="22" y="32" font-size="11" letter-spacing="2.2" fill="#d7bc84" font-weight="700">COMMAND</text>
+    <text x="22" y="64" font-size="22" fill="#fafaf6" font-weight="700">Speak. Watch it act.</text>
+    <text x="22" y="92" font-size="12" fill="#9ca09b">Captures your screen, hands it to the</text>
+    <text x="22" y="108" font-size="12" fill="#9ca09b">OpenClaw agent. The agent sees what</text>
+    <text x="22" y="124" font-size="12" fill="#9ca09b">you saw and acts — files, web, Lark.</text>
+
+    <g transform="translate(22, 152)">
+      <rect width="78" height="36" rx="9" fill="#0a0d10" stroke="#d7bc84" stroke-opacity="0.45"/>
+      <text x="39" y="23" font-size="12" fill="#d7bc84" text-anchor="middle" font-family="ui-monospace, 'SF Mono', monospace" font-weight="600">+ Shift</text>
+    </g>
+    <text x="110" y="174" font-size="12" fill="#7d8480" font-weight="500">agent runs in background</text>
+
+    <line x1="22" y1="200" x2="268" y2="200" stroke="#fff" stroke-opacity="0.08"/>
+  </g>
+
+  <!-- Quick Ask card -->
+  <g transform="translate(652, 100)">
+    <rect width="290" height="220" rx="14" fill="url(#askGrad)" stroke="#5ee2b7" stroke-opacity="0.35" stroke-width="1.5"/>
+    <text x="22" y="32" font-size="11" letter-spacing="2.2" fill="#5ee2b7" font-weight="700">QUICK ASK</text>
+    <text x="22" y="64" font-size="22" fill="#fafaf6" font-weight="700">Speak. Get answer.</text>
+    <text x="22" y="92" font-size="12" fill="#9ca09b">Ask anything. The answer streams into</text>
+    <text x="22" y="108" font-size="12" fill="#9ca09b">a small overlay you can read, copy, or</text>
+    <text x="22" y="124" font-size="12" fill="#9ca09b">turn into a follow-up — without leaving.</text>
+
+    <g transform="translate(22, 152)">
+      <rect width="78" height="36" rx="9" fill="#0a0d10" stroke="#5ee2b7" stroke-opacity="0.45"/>
+      <text x="39" y="23" font-size="12" fill="#5ee2b7" text-anchor="middle" font-family="ui-monospace, 'SF Mono', monospace" font-weight="600">+ Space</text>
+    </g>
+    <text x="110" y="174" font-size="12" fill="#7d8480" font-weight="500">streaming overlay</text>
+
+    <line x1="22" y1="200" x2="268" y2="200" stroke="#fff" stroke-opacity="0.08"/>
+  </g>
+</svg>

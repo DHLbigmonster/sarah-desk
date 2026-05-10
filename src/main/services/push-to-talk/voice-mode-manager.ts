@@ -103,15 +103,21 @@ export class VoiceModeManager {
     this.stopKeys.clear();
     this.stopKeys.add(keycode);
 
+    // VAD: auto-stop on sustained silence
+    asrService.on('silence', () => {
+      if (this.state !== 'idle') {
+        logger.info('VoiceModeManager: VAD silence → auto-stop', { state: this.state });
+        void this.stopCurrentMode();
+      }
+    });
+
     // For non-modifier trigger keys (CapsLock, F-keys, MetaRight), register
     // them as pseudo-modifiers so Space chords can be detected.
     const isStandardModifier = ([
       UiohookKey.CtrlRight, UiohookKey.AltRight, UiohookKey.Ctrl,
       UiohookKey.Shift, UiohookKey.ShiftRight,
     ] as readonly number[]).includes(keycode);
-    if (!isStandardModifier) {
-      keyboardService.setTriggerKeycode(keycode);
-    }
+    keyboardService.setTriggerKeycode(isStandardModifier ? null : keycode);
 
     // Determine the modifier string for Space+trigger chords.
     const triggerModifier = this.resolveTriggerModifier(keycode);
@@ -164,10 +170,12 @@ export class VoiceModeManager {
     keyboardService.unregister(keycode);
     keyboardService.unregister(keycode, 'shift');
     keyboardService.unregister(UiohookKey.Space, modifier);
+    keyboardService.setTriggerKeycode(null);
     if (this.isQuickAskShortcutInitialized) {
       globalShortcut.unregister('Control+Space');
       this.isQuickAskShortcutInitialized = false;
     }
+    asrService.removeAllListeners('silence');
     this.isInitialized = false;
     logger.info('VoiceModeManager disposed');
   }
@@ -221,7 +229,15 @@ export class VoiceModeManager {
     if (!raw) return raw;
     try {
       const cleaned = await dictationRefinementService.refine(raw);
-      return cleaned.trim() || raw;
+      const result = cleaned.trim() || raw;
+      logger.info('Voice transcript refined', {
+        mode,
+        rawChars: raw.length,
+        refinedChars: result.length,
+        rawPreview: raw.slice(0, 80),
+        refinedPreview: result.slice(0, 80),
+      });
+      return result;
     } catch (err) {
       logger.warn('cleanTranscript fallback to raw', {
         mode,
@@ -297,9 +313,18 @@ export class VoiceModeManager {
     this.lastStartTime = now;
     logger.info('VoiceModeManager: START command');
 
-    // Capture context BEFORE showing overlay, so we get the user's actual
-    // frontmost app (not our own CodePilot window that appears on overlay).
-    try { this.pendingContext = await contextCaptureService.capture(); } catch { this.pendingContext = null; }
+    // Capture context before showing the voice HUD. If the user starts a new
+    // Command while Sarah's answer overlay is still visible, hide it first so
+    // the screenshot and frontmost app belong to the underlying target app.
+    try {
+      if (agentWindow.isVisible()) {
+        agentWindow.hide();
+        await new Promise<void>((resolve) => { setTimeout(resolve, 120); });
+      }
+      this.pendingContext = await contextCaptureService.capture();
+    } catch {
+      this.pendingContext = null;
+    }
 
     this.state = 'command_recording';
     this.publishOverlayState('command', 'recording');
@@ -362,6 +387,13 @@ export class VoiceModeManager {
       this.publishOverlayState('dictation', 'routing');
       floatingWindow.sendStatus('routing');
       const refined = await dictationRefinementService.refine(result.text);
+      logger.info('Voice transcript refined', {
+        mode: 'dictation',
+        rawChars: result.text.length,
+        refinedChars: refined.length,
+        rawPreview: result.text.slice(0, 80),
+        refinedPreview: refined.slice(0, 80),
+      });
 
       this.publishOverlayState('dictation', 'executing');
       floatingWindow.sendStatus('executing');

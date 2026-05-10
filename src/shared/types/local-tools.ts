@@ -1,0 +1,68 @@
+export type LocalToolId = 'openclaw' | 'hermes' | 'obsidian' | 'lark-cli';
+
+export type LocalToolCategory = 'agent' | 'knowledge' | 'productivity';
+
+export type LocalToolHealth = 'ready' | 'needs_setup' | 'missing' | 'unknown';
+
+export type LocalToolAuthState = 'not_required' | 'authenticated' | 'needs_auth' | 'unknown';
+
+export type LocalToolRisk = 'read' | 'write' | 'external' | 'sensitive';
+
+export type LocalToolApprovalScope = 'always' | 'session' | 'one_time';
+
+export interface LocalToolApproval {
+  scope: LocalToolApprovalScope;
+  approvedAt: number;
+  lastUsedAt: number | null;
+}
+
+export interface LocalToolCapability {
+  id: string;
+  label: string;
+  description: string;
+  risk: LocalToolRisk;
+  enabled: boolean;
+  requiresConsent: boolean;
+  commandHint: string | null;
+  approval: LocalToolApproval | null;
+}
+
+export interface LocalToolStatus {
+  id: LocalToolId;
+  name: string;
+  category: LocalToolCategory;
+  description: string;
+  installed: boolean;
+  path: string | null;
+  version: string | null;
+  authState: LocalToolAuthState;
+  health: LocalToolHealth;
+  detail: string;
+  setupHint: string | null;
+  docsUrl: string | null;
+  capabilities: LocalToolCapability[];
+  signals: Record<string, string | number | boolean | null>;
+  checkedAt: number;
+}
+
+export interface LocalToolsSnapshot {
+  checkedAt: number;
+  ready: number;
+  needsSetup: number;
+  missing: number;
+  tools: LocalToolStatus[];
+}
+
+export interface LocalToolExecutionRequest {
+  toolId: LocalToolId;
+  capabilityId: string;
+  args?: Record<string, string | number | boolean>;
+}
+
+export interface LocalToolExecutionResult {
+  success: boolean;
+  output?: string;
+  error?: string;
+  requiresApproval?: boolean;
+  notImplemented?: boolean;
+}

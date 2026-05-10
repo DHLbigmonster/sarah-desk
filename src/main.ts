@@ -16,7 +16,14 @@ log.info('[ENV] Result:', result.error ? `ERROR: ${result.error}` : `OK, keys: $
 log.info('[ENV] VOLCENGINE_APP_ID:', process.env.VOLCENGINE_APP_ID ? 'SET' : 'MISSING');
 import started from 'electron-squirrel-startup';
 import { setupAllIpcHandlers } from './main/ipc';
-import { floatingWindow, agentWindow, clawDeskMainWindow, miniSettingsWindow, setQuitting } from './main/windows';
+import {
+  floatingWindow,
+  agentWindow,
+  clawDeskMainWindow,
+  miniSettingsWindow,
+  menubarPopoverWindow,
+  setQuitting,
+} from './main/windows';
 import { voiceModeManager } from './main/services/push-to-talk/voice-mode-manager';
 import { hotkeyManager } from './main/services/hotkey/hotkey-manager';
 import { permissionsService } from './main/services/permissions';
@@ -28,6 +35,7 @@ import { asrService } from './main/services/asr/asr.service';
 import { isASRConfigured } from './main/services/asr';
 import { lightweightRefinementClient } from './main/services/agent/lightweight-refinement-client';
 import { dictationRefinementService } from './main/services/agent';
+import { clawDeskSettingsService } from './main/services/clawdesk/settings.service';
 import { textInputService } from './main/services/text-input';
 import { getIsAppQuitting, markAppQuitting } from './main/app-lifecycle';
 import type { MiniStatus } from './shared/types/mini';
@@ -45,6 +53,7 @@ setupAllIpcHandlers();
 setupMiniIpcHandlers();
 
 let tray: Tray | null = null;
+let trayMenu: Menu | null = null;
 /**
  * Hidden renderer that hosts the AudioRecorder (Web Audio API).
  * Main process cannot call getUserMedia directly, so we keep one
@@ -179,6 +188,8 @@ async function getMiniStatus(): Promise<MiniStatus> {
   const accessibilityGranted = permissionsService.getAccessibilityStatus();
   const screenRecordingStatus = permissionsService.getScreenRecordingStatus();
   const asrConfigured = isASRConfigured();
+  const runtimeSelection = await clawDeskSettingsService.getAgentRuntimeSelection();
+  const effectiveRuntime = runtimeSelection.runtimes.find((runtime) => runtime.id === runtimeSelection.effective);
 
   return {
     mode: 'mini',
@@ -197,6 +208,14 @@ async function getMiniStatus(): Promise<MiniStatus> {
       configured: lightweightRefinementClient.isConfigured(),
       detail: lightweightRefinementClient.isConfigured() ? 'Model configured' : 'Using local fallback',
     },
+    agent: {
+      available: Boolean(effectiveRuntime?.ready),
+      binaryPath: effectiveRuntime?.path ?? null,
+      detail: effectiveRuntime?.detail ?? 'No agent runtime was detected. Install or configure OpenClaw or Hermes.',
+      selectedRuntime: runtimeSelection.selected,
+      effectiveRuntime: runtimeSelection.effective,
+      runtimes: runtimeSelection.runtimes,
+    },
     hotkeys: {
       accessibilityGranted,
       keyboardHookActive: voiceModeManager.isReady,
@@ -213,6 +232,10 @@ async function getMiniStatus(): Promise<MiniStatus> {
       accessibility: accessibilityGranted,
       screenRecording: screenRecordingStatus,
       inputMonitoring: voiceModeManager.isReady,
+    },
+    onboarding: {
+      completed: !firstLaunchService.isFirstLaunch(),
+      showWelcome: firstLaunchService.isFirstLaunch(),
     },
   };
 }
@@ -330,10 +353,40 @@ function setupMiniIpcHandlers(): void {
   });
 
   ipcMain.handle(IPC_CHANNELS.MINI.GET_STATUS, () => getMiniStatus());
+  ipcMain.handle(IPC_CHANNELS.MINI.HIDE_POPOVER, () => {
+    menubarPopoverWindow.hide();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.SHOW_SETTINGS, () => {
+    menubarPopoverWindow.hide();
+    miniSettingsWindow.show();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.OPEN_PERMISSIONS, () => {
+    menubarPopoverWindow.hide();
+    void openPermissions();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.TOGGLE_DICTATION, () => {
+    void voiceModeManager.testDictationToggle();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.TOGGLE_COMMAND, () => {
+    void voiceModeManager.testCommandModeToggle();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.QUIT, () => {
+    app.quit();
+    return { success: true };
+  });
   ipcMain.handle(IPC_CHANNELS.MINI.SHOW_LOGS, async () => {
     const logPath = app.getPath('logs');
     const error = await shell.openPath(logPath);
     return { success: error === '', error: error || undefined };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.COMPLETE_ONBOARDING, () => {
+    firstLaunchService.markComplete();
+    return { success: true };
   });
   ipcMain.handle(IPC_CHANNELS.MINI.TEST_RECORDER_WINDOW, () => testRecorderWindow());
   ipcMain.handle(IPC_CHANNELS.MINI.TEST_IPC, () => testRecorderIpc());
@@ -410,7 +463,7 @@ function createTray(): void {
     const a11yOk = permissionsService.getAccessibilityStatus();
     const baseOk = micOk && a11yOk;
 
-    const menu = Menu.buildFromTemplate([
+    trayMenu = Menu.buildFromTemplate([
       {
         label: 'Sarah Settings',
         click: () => miniSettingsWindow.show(),
@@ -468,8 +521,8 @@ function createTray(): void {
       },
       { type: 'separator' },
       {
-        label: 'Open Sarah Debug Console',
-        click: () => clawDeskMainWindow.show(),
+        label: 'Open Logs',
+        click: () => shell.openPath(app.getPath('logs')),
       },
       {
         label: 'Quit',
@@ -477,14 +530,19 @@ function createTray(): void {
         click: () => app.quit(),
       },
     ]);
-    tray?.setContextMenu(menu);
+    // Do not attach the menu with setContextMenu() on macOS. Electron/AppKit can
+    // show the native menu on the same click that opens our custom popover,
+    // producing two overlapping tray surfaces. We pop it manually on right-click.
+    if (process.platform !== 'darwin') {
+      tray?.setContextMenu(trayMenu);
+    }
   };
 
   rebuildMenu();
 
   // Left-click behavior depends on tray state:
   //   done-unread → show buffered Command result in agent window + reset to idle
-  //   otherwise   → open tray context menu
+  //   otherwise   → open the custom Sarah popover
   tray.on('click', () => {
     if (trayStateService.getState() === 'done-unread') {
       const record = commandResultStore.get();
@@ -500,14 +558,18 @@ function createTray(): void {
       trayStateService.setState('idle');
       return;
     }
-    tray?.popUpContextMenu();
+    if (tray) {
+      menubarPopoverWindow.toggle(tray.getBounds());
+    }
   });
 
-  const clawDeskWindow = clawDeskMainWindow.getWindow();
-  if (clawDeskWindow) {
-    clawDeskWindow.on('show', rebuildMenu);
-    clawDeskWindow.on('hide', rebuildMenu);
-  }
+  tray.on('right-click', () => {
+    menubarPopoverWindow.hide();
+    if (trayMenu) {
+      tray?.popUpContextMenu(trayMenu);
+    }
+  });
+
 }
 
 // ─── Permissions helper ───────────────────────────────────────────────────────
@@ -575,31 +637,13 @@ app.on('ready', async () => {
     bundleId: app.getName(),
     execPath: process.execPath,
   });
-  if (missing.length > 0 && !smokeTestMode) {
-    if (firstLaunchService.isFirstLaunch()) {
-      // Enhanced first-launch notification with clear instructions
-      if (Notification.isSupported()) {
-        const n = new Notification({
-          title: '欢迎使用 Sarah! 首次设置',
-          body: [
-            'Sarah 需要以下系统权限才能正常工作：',
-            '',
-            missing.map((p) => `  - ${p}`).join('\n'),
-            '',
-            '请在「系统设置 → 隐私与安全性」中逐一启用，然后重启 Sarah。',
-            'Dictation（听写）不需要 Open Claw 或火山引擎配置即可使用。',
-          ].join('\n'),
-          silent: false,
-        });
-        n.on('click', () => {
-          permissionsService.openKeyboardPermissionSettings();
-        });
-        n.show();
-      }
-      firstLaunchService.markComplete();
-    } else {
-      permissionsService.showPermissionNotification(missing);
-    }
+  if (!smokeTestMode && firstLaunchService.isFirstLaunch()) {
+    // First launch: open Mini Settings as the onboarding surface.
+    // The renderer shows a welcome checklist and calls completeOnboarding()
+    // when the user is ready. Don't auto-mark complete here.
+    miniSettingsWindow.show();
+  } else if (missing.length > 0 && !smokeTestMode) {
+    permissionsService.showPermissionNotification(missing);
   }
 
   logger.info('sarah-desk ready in Mini mode. Sarah Debug Console stays hidden until explicitly opened.');
@@ -632,6 +676,7 @@ function cleanup(): void {
   agentWindow.destroy();
   clawDeskMainWindow.destroy();
   miniSettingsWindow.destroy();
+  menubarPopoverWindow.destroy();
   if (recorderWindow && !recorderWindow.isDestroyed()) {
     recorderWindow.destroy();
     recorderWindow = null;

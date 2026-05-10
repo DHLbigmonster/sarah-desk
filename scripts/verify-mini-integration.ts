@@ -80,13 +80,20 @@ section('Static source checks');
   'src/main/services/keyboard/keyboard.service.ts',
   'src/main/services/push-to-talk/voice-mode-manager.ts',
   'src/main/services/agent/dictation-refinement.service.ts',
+  'src/main/services/local-tools/local-tools.service.ts',
+  'src/main/services/local-tools/approval-store.ts',
+  'src/main/services/local-tools/executor.ts',
   'src/main/services/text-input/text-input.service.ts',
   'src/main/ipc/asr.handler.ts',
+  'src/main/ipc/local-tools.handler.ts',
   'src/main/windows/floating.ts',
   'src/main/windows/mini-settings.ts',
+  'src/main/windows/menubar-popover.ts',
+  'menubar-popover.html',
   'forge.config.ts',
   'vite.renderer.config.ts',
   'vite.mini-settings.config.ts',
+  'vite.menubar-popover.config.ts',
 ].forEach(exists);
 
 contains('src/main.ts', 'let recorderWindow: BrowserWindow | null = null', 'recorderWindow declaration');
@@ -96,7 +103,9 @@ contains('index.html', '/src/renderer.ts', 'recorder html renderer entry');
 contains('src/preload.ts', 'sendAudio', 'preload exposes sendAudio');
 contains('src/preload.ts', 'signalRecorderReady', 'preload exposes recorder ready');
 contains('src/preload.ts', 'onRecorderPing', 'preload exposes recorder ping listener');
+contains('src/preload.ts', 'localToolsApi', 'preload exposes local tools API');
 contains('src/main/ipc/asr.handler.ts', 'IPC_CHANNELS.ASR.SEND_AUDIO', 'main handles ASR audio chunks');
+contains('src/main/ipc/index.ts', 'setupLocalToolsHandlers()', 'main registers local tools IPC handlers');
 contains('src/renderer.ts', 'window.api.asr.sendAudio(chunk)', 'renderer sends audio chunks');
 contains('src/renderer.ts', 'window.api.mini.signalRecorderReady()', 'renderer sends recorder ready');
 contains('src/renderer.ts', 'window.api.mini.sendRecorderPong', 'renderer sends recorder pong');
@@ -105,8 +114,9 @@ contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'await asrServi
 contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'dictationRefinementService.refine', 'dictation refinement after ASR');
 contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'textInputService.insert', 'text insertion after refinement');
 contains('src/main.ts', 'new Tray(icon)', 'tray/menu bar creation');
-contains('src/main.ts', 'Open Sarah Debug Console', 'Sarah debug console menu item');
+contains('src/main.ts', 'Open Logs', 'Logs menu item');
 contains('src/main.ts', 'miniSettingsWindow.show()', 'Mini Settings menu item');
+contains('src/main.ts', 'menubarPopoverWindow.toggle(tray.getBounds())', 'custom menubar popover click');
 regex('src/main.ts', /app\.on\('ready'[\s\S]*?createTray\(\);[\s\S]*?logger\.info\('sarah-desk ready in Mini mode/, 'Mini startup path');
 
 const readyBlock = read('src/main.ts').match(/app\.on\('ready'[\s\S]*?\n\}\);/);
@@ -132,6 +142,11 @@ section('IPC string checks');
   'mini:test-ipc',
   'mini:test-asr-mock',
   'mini:test-text-insert-mock',
+  'local-tools:get-snapshot',
+  'local-tools:set-approval',
+  'local-tools:revoke-approval',
+  'local-tools:execute',
+  'mini:complete-onboarding',
 ].forEach((needle) => contains('src/shared/constants/channels.ts', needle, needle));
 
 section('Build config checks');
@@ -140,10 +155,13 @@ contains('vite.renderer.config.ts', "input: 'index.html'", 'recorder html build 
 contains('forge.config.ts', "entry: 'src/preload.ts'", 'preload build target');
 contains('forge.config.ts', "name: 'main_window'", 'recorder renderer forge target');
 contains('forge.config.ts', "name: 'mini_settings_window'", 'mini settings forge target');
+contains('forge.config.ts', "name: 'menubar_popover_window'", 'menubar popover forge target');
 contains('src/main.ts', 'MAIN_WINDOW_VITE_DEV_SERVER_URL', 'dev server recorder path');
 contains('src/main.ts', '../renderer/${MAIN_WINDOW_VITE_NAME}/index.html', 'packaged recorder path');
 contains('src/main/windows/mini-settings.ts', 'MINI_SETTINGS_WINDOW_VITE_DEV_SERVER_URL', 'dev server mini settings path');
 contains('src/main/windows/mini-settings.ts', '../renderer/${MINI_SETTINGS_WINDOW_VITE_NAME}/mini-settings.html', 'packaged mini settings path');
+contains('src/main/windows/menubar-popover.ts', 'MENUBAR_POPOVER_WINDOW_VITE_DEV_SERVER_URL', 'dev server menubar popover path');
+contains('src/main/windows/menubar-popover.ts', '../renderer/${MENUBAR_POPOVER_WINDOW_VITE_NAME}/menubar-popover.html', 'packaged menubar popover path');
 
 const isCI = process.env.CI === 'true';
 
@@ -168,6 +186,7 @@ if (isCI) {
         '/.vite/renderer/main_window/index.html',
         '/.vite/renderer/floating_window/floating.html',
         '/.vite/renderer/mini_settings_window/mini-settings.html',
+        '/.vite/renderer/menubar_popover_window/menubar-popover.html',
       ].forEach((entry) => {
         add(`packaged:${entry}`, list.includes(entry), list.includes(entry) ? 'present in app.asar' : 'missing from app.asar');
       });

@@ -17,3 +17,20 @@ export type {
   AgentStreamChunk,
   AgentContextReadyPayload,
 } from './agent';
+
+export type {
+  AppApi,
+  ASRApi,
+  FloatingWindowApi,
+  AgentApi,
+  PushToTalkApi,
+  ClawDeskApi,
+  LocalToolsApi,
+  MiniApi,
+} from './ipc-api';
+
+export type {
+  LocalToolCapability,
+  LocalToolsSnapshot,
+  LocalToolStatus,
+} from './local-tools';

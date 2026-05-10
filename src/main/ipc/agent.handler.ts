@@ -13,7 +13,7 @@ import { ipcMain } from 'electron';
 import log from 'electron-log';
 import { IPC_CHANNELS } from '../../shared/constants/channels';
 import { agentService, memoryService, consolidationService } from '../services/agent';
-import { agentWindow, clawDeskMainWindow, floatingWindow } from '../windows';
+import { agentWindow, floatingWindow } from '../windows';
 import type { AgentMessage } from '../../shared/types/agent';
 
 const logger = log.scope('agent-handler');
@@ -27,17 +27,14 @@ export function setupAgentHandlers(): void {
   agentService.on('chunk', (chunk: { type: string; text?: string; toolName?: string }) => {
     const typed = chunk as Parameters<typeof agentWindow.sendChunk>[0];
     agentWindow.sendChunk(typed);
-    clawDeskMainWindow.sendChunk(typed);
   });
 
   agentService.on('done', () => {
     agentWindow.sendDone();
-    clawDeskMainWindow.sendDone();
   });
 
   agentService.on('error', (message: string) => {
     agentWindow.sendError(message);
-    clawDeskMainWindow.sendError(message);
   });
 
   // ── Answer overlay first chunk notification ──────────────────────────────
@@ -48,13 +45,13 @@ export function setupAgentHandlers(): void {
   // ── Consolidation: summarise yesterday's session in the background ────────
   consolidationService.onSummaryReady((summary) => {
     agentWindow.sendDailySummaryReady(summary);
-    clawDeskMainWindow.sendDailySummaryReady(summary);
     logger.info('Daily summary forwarded to renderer', { date: summary.date });
   });
 
-  // Trigger after a short delay so the main window can finish initialising
+  // Trigger after a short delay so the main window can finish initialising,
+  // then keep a local-midnight scheduler alive for long-running app sessions.
   setTimeout(() => {
-    consolidationService.runIfNeeded();
+    consolidationService.startScheduler();
   }, 3000);
 
   // ── Renderer → Main: hide the agent window ──────────────────────────────
