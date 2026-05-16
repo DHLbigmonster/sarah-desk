@@ -45,6 +45,7 @@ export interface ASRApi {
   onResult: (callback: (result: ASRResult) => void) => () => void;
   onLevel: (callback: (level: number) => void) => () => void;
   onStatus: (callback: (status: ASRStatus) => void) => () => void;
+  onNotice: (callback: (notice: string) => void) => () => void;
   onError: (callback: (error: string) => void) => () => void;
 }
 
@@ -97,6 +98,7 @@ export interface ClawDeskApi {
   getHotkeyConfig: () => Promise<HotkeyConfig>;
   saveHotkeyConfig: (config: HotkeyConfig) => Promise<{ success: boolean; error?: string }>;
   checkToggleWindow: (accelerator: string) => Promise<HotkeyCheckResult>;
+  checkVoiceTrigger: (config: HotkeyConfig) => Promise<HotkeyCheckResult>;
   voiceInputToggle: () => Promise<{ recording: boolean; error?: string } | { text?: string; error?: string }>;
   voiceInputStop: () => Promise<{ text?: string; error?: string }>;
   getConfigKeys: (provider: 'voice' | 'text') => Promise<Record<string, string>>;
@@ -115,6 +117,7 @@ export interface MiniApi {
   openPermissions: () => Promise<{ success: boolean }>;
   toggleDictation: () => Promise<{ success: boolean }>;
   toggleCommand: () => Promise<{ success: boolean }>;
+  toggleQuickAsk: () => Promise<{ success: boolean }>;
   quit: () => Promise<{ success: boolean }>;
   showLogs: () => Promise<{ success: boolean; error?: string }>;
   completeOnboarding: () => Promise<{ success: boolean }>;

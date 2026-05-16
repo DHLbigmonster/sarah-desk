@@ -286,13 +286,13 @@ h1 {
 
 .runtime-switcher {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
 .runtime-option {
   min-width: 0;
-  min-height: 66px;
+  min-height: 74px;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 10px;
   padding: 9px;
@@ -300,6 +300,35 @@ h1 {
   background: rgba(255, 255, 255, 0.04);
   cursor: pointer;
   transition: border-color 140ms ease, background-color 140ms ease, transform 140ms ease;
+}
+
+.advanced-tools {
+  padding: 11px 12px;
+}
+
+.advanced-tools summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.advanced-tools summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-tools strong {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.advanced-tools .tool-list {
+  margin-top: 10px;
 }
 
 .runtime-option:hover {
@@ -477,7 +506,7 @@ h1 {
 
 .welcome-demo {
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr) auto;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -643,6 +672,47 @@ h1 {
   gap: 6px;
 }
 
+.custom-trigger-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 1.15fr 64px;
+  gap: 6px;
+}
+
+.custom-keycode-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 8px;
+  padding: 0 7px;
+  color: rgba(244, 245, 240, 0.48);
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 9px;
+  font-weight: 720;
+  text-transform: uppercase;
+}
+
+.custom-keycode-field input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  color: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  font: inherit;
+  text-align: right;
+}
+
+.custom-trigger {
+  border-color: rgba(94, 229, 164, 0.16);
+}
+
+.custom-apply {
+  text-transform: uppercase;
+}
+
 .trigger-key {
   min-width: 0;
   height: 30px;
@@ -683,7 +753,7 @@ h1 {
 
 .action-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -871,6 +941,12 @@ h1 {
   border-color: rgba(120, 220, 160, 0.36);
   color: rgba(190, 240, 210, 0.94);
   background: rgba(120, 220, 160, 0.12);
+}
+
+.tool-chip .chip-action.run {
+  border-color: rgba(92, 179, 255, 0.36);
+  color: rgba(210, 235, 255, 0.96);
+  background: rgba(92, 179, 255, 0.14);
 }
 
 .tool-chip .chip-action.revoke {

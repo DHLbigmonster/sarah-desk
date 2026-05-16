@@ -77,7 +77,7 @@ export interface OpenClawStatus {
   authenticated: boolean;
 }
 
-export type AgentRuntimeId = 'openclaw' | 'hermes';
+export type AgentRuntimeId = 'openclaw' | 'hermes' | 'codex' | 'claude';
 
 export interface AgentRuntimeStatus {
   id: AgentRuntimeId;
@@ -164,7 +164,7 @@ export const DEFAULT_HOTKEY_CONFIG: HotkeyConfig = {
 };
 
 export interface HotkeyConflict {
-  type: 'system_reserved' | 'already_registered' | 'invalid_format';
+  type: 'system_reserved' | 'already_registered' | 'invalid_format' | 'unsafe_text_key';
   message: string;
 }
 

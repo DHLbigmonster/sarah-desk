@@ -744,3 +744,598 @@ Verification:
 Known limitations / next steps:
 
 - The screenshot harness intentionally uses deterministic mock IPC payloads. It is suitable for README images and renderer regression smoke coverage, but it does not replace one manual microphone hotkey pass on a freshly installed app.
+
+## 2026-05-10 Silent Demo Video
+
+User asked whether Sarah could produce a demo video, save it in the project root, and leave it ready for the user to add voiceover.
+
+- Fast-forwarded local `main` to the merged README/streaming work so the latest screenshot harness and product assets were present.
+- Ran `pnpm package` to rebuild current Electron/Vite output.
+- Ran `pnpm screenshots:readme` to refresh the deterministic product visuals from the current build.
+- Created `sarah-demo-video.mp4` in the repository root, then removed it after the user rejected the screenshot-based approach as not useful for product demo.
+  - 1920x1080, 30fps, 28 seconds, H.264 MP4, no audio track.
+  - Walkthrough order: first-run onboarding, Dictation recording HUD, Command mode, Quick Ask mode.
+  - Uses current generated product screenshots as stable visuals so the file is safe for voiceover and does not depend on live microphone/permission dialogs.
+- Reverted the incidental regenerated `product-recording.png` binary difference and removed the temporary preview frame. No demo MP4 remains in the working tree.
+
+Verification:
+
+- `ffprobe` confirmed `sarah-demo-video.mp4` is 1920x1080, 30fps, 28 seconds.
+- Extracted and visually inspected a frame from the Command section to confirm the video is not black and the composition is readable.
+
+Known limitations / next steps:
+
+- The rejected video was a silent walkthrough assembled from deterministic app screenshots, not a live microphone/screen recording. If a real demo is needed later, record from the installed app with real hotkey input after granting macOS permissions.
+
+## 2026-05-10 UI/Interaction Review and Debug
+
+User rejected the screenshot-based MP4 as low-value and asked for a UI/interaction review, optimization pass, then another review/debug loop.
+
+- Removed the generated `sarah-demo-video.mp4`.
+- Review findings:
+  - Mini Settings exposed Dictate and Command but not Quick Ask as a first-class action, even though the product has three primary modes.
+  - The recording HUD was visually compact but ambiguous: it showed waveform/actions without text explaining the active mode or phase.
+  - Agent overlay streamed output, but progress was only a small status label; users could not quickly distinguish mode, progress, question, and final answer hierarchy.
+  - Local tool approval buttons were embedded inside chips without click isolation.
+  - README screenshot harness used an invalid `ControlRight` mock value and the old HUD capture dimensions, causing truncated hotkey copy and a black area in the recording PNG.
+- Implemented:
+  - Added Mini Quick Ask IPC (`mini:toggle-quick-ask`) through channel constants, preload types, main handler, and `VoiceModeManager.testQuickAskToggle()`.
+  - Added Quick Ask to Mini first-run demos and the persistent action grid.
+  - Expanded the floating HUD to 220x48 with mode + phase labels (`Dictating / Listening`, `Command`, `Quick Ask`, etc.) alongside waveform and cancel/confirm buttons.
+  - Added an Agent overlay progress rail showing `Command` or `Quick Ask`, current progress, and an animated activity line while streaming.
+  - Stopped approval action clicks from bubbling.
+  - Shortened Mini hotkey hints and fixed the screenshot mock trigger key to `CtrlRight`.
+  - Updated screenshot capture dimensions for the new HUD and regenerated all README product PNGs.
+  - Added `mini:toggle-quick-ask` to `verify:mini` IPC checks.
+- Verification:
+  - `pnpm typecheck` passed.
+  - `pnpm lint` passed.
+  - `pnpm test` passed 44/44 tests.
+  - `pnpm package` passed.
+  - `pnpm screenshots:readme` passed and regenerated all four product screenshots.
+  - `pnpm verify:mini` passed 88/88 checks.
+
+Known limitations / next steps:
+
+- This pass improves the shipped surfaces and deterministic product screenshots. It still does not replace a real installed-app interaction recording with mouse/keyboard/microphone input.
+- The welcome demo row descriptions are intentionally truncated in the narrow Mini panel; if marketing screenshots need full text, create a dedicated wider marketing capture instead of overfitting the app UI.
+
+## 2026-05-13 Voice Cue and Dictation Clipboard Fallback
+
+User asked to strengthen voice input behavior:
+
+- Play a small cue when any of the three voice modes opens and when it closes.
+- In Dictation only, insert recognized/refined text directly when a text cursor/input target exists.
+- If Dictation has no likely text target, copy the final text to the clipboard and notify the user: `刚刚说的内容已经进入到剪切板了`.
+- Do not copy Command or Quick Ask text to the clipboard because those modes execute through the agent.
+- Review/debug after implementation.
+
+Implemented:
+
+- Added `shell.beep()` start/stop cues in `VoiceModeManager` for Dictation, Command, Quick Ask, and cancel.
+- Extended `TextInputService.insert()` to return a destination: `inserted` or `clipboard`.
+- Added a macOS Accessibility-based focused text target probe using `AXFocusedUIElement`.
+  - If the focused role looks like text input (`AXTextField`, `AXTextArea`, combo/search field, text/editor subrole), Sarah attempts native insertion.
+  - If no likely text target is found, Sarah writes the dictation result to the clipboard.
+  - If the probe itself fails, Sarah attempts native insertion first to avoid false-positive clipboard fallback.
+  - If native insertion throws, Sarah falls back to clipboard.
+- Added `asr:notice` IPC, preload typing, `useASRStatus()` notice state, and `FloatingWindowManager.sendNotice()` so clipboard fallback is shown as a normal success notice rather than an error.
+- Widened the compact floating HUD from 220px to 280px so the Chinese clipboard notice has room.
+- Updated README screenshot capture width for the widened recording HUD.
+- Updated `verify-mini-integration.ts` to check the voice cue, clipboard fallback, focused-target probe, and notice IPC.
+- Changed `verify-mini-integration.ts` from shelling out to `npx asar` to direct `@electron/asar` API calls because the local `npx asar` subprocess stalled during verification.
+- Added targeted `VoiceModeManager` tests for cue calls, clipboard fallback notice, and ensuring Command/Quick Ask do not call `textInputService.insert()`.
+
+Verification:
+
+- `node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts` passed 94/94 checks.
+- Syntax transform check with `esbuild.transformSync()` passed for all changed TS/TSX files.
+
+Blocked / not completed:
+
+- `pnpm typecheck` did not complete in this environment. Sampling showed the `tsc --noEmit` process blocked in a filesystem `read()` while reading `node_modules/undici-types/diagnostics-channel.d.ts`; it was killed after several minutes with no diagnostic output.
+- `pnpm test -- src/main/services/push-to-talk/voice-mode-manager.test.ts` did not reach Vitest startup output within 60 seconds and was killed.
+- `pnpm package` printed the script header but did not spawn visible Electron Forge work within 60 seconds and was killed. A direct `node node_modules/@electron-forge/cli/dist/electron-forge.js package` attempt also produced no output within 120 seconds.
+
+Known limitations / next steps:
+
+- The focused text target detection is a macOS Accessibility heuristic. It is intentionally conservative: clear non-text focus copies to clipboard, probe failures attempt native insertion first.
+- Re-run `pnpm typecheck`, `pnpm test`, and `pnpm package` after the local Node/FS stall is resolved.
+- After successful packaging, re-run `pnpm screenshots:readme` so `product-recording.png` reflects the 280px HUD width.
+
+### Follow-up: Audible Cue Debug
+
+User reported they did not hear the cue.
+
+- Root cause found:
+  - Source had used Electron `shell.beep()`, which is too weak/unreliable on macOS and can be inaudible depending on system alert settings.
+  - The currently installed `/Users/chaosmac/Applications/Sarah.app` and `out/Sarah-darwin-arm64/Sarah.app` did not contain the new cue code at all because packaging had not completed after the source change.
+- Source fix:
+  - `VoiceModeManager.playVoiceCue()` now calls `/usr/bin/afplay -v 0.35` directly.
+  - Start cue uses `/System/Library/Sounds/Ping.aiff`.
+  - Stop cue uses `/System/Library/Sounds/Pop.aiff`.
+  - If `afplay` fails, it falls back to `shell.beep()`.
+  - Direct terminal playback of both sound files completed successfully.
+  - `verify-mini-integration.ts` now checks for `/usr/bin/afplay` instead of `shell.beep()`.
+- Verification:
+  - `esbuild.transformSync()` syntax check passed for `voice-mode-manager.ts` and `verify-mini-integration.ts`.
+  - `node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts` passed 94/94 checks.
+- Important failed attempt:
+  - Tried to patch installed `app.asar` directly so the running app could get sound immediately.
+  - Electron ASAR integrity rejected the modified archive at launch.
+  - Restored both `app.asar` files from `.bak-voice-cue` backups immediately.
+  - Smoke-tested restored installed app with `SARAH_SMOKE_TEST=1`; tray/hidden debug console/recorder/IPC checks all passed.
+
+Next step:
+
+- The source is fixed, but the installed app still needs a successful Forge package/install run before the audible cue appears in the real app.
+
+### Follow-up: Installed App Would Not Open
+
+User reported Sarah could no longer be opened.
+
+- Diagnosis:
+  - The installed app bundle signature and ASAR integrity were restored and valid.
+  - `SARAH_SMOKE_TEST=1 /Users/chaosmac/Applications/Sarah.app/Contents/MacOS/Sarah` passed tray, hidden debug console, recorder window, and recorder IPC checks.
+  - A stale Sarah process from the earlier failed ASAR patch attempt remained as PID `58910` in `UEs` state. `kill -9` could not terminate it.
+  - LaunchServices still had that stale PID registered as the running `com.sarah.app`, so normal `open` treated Sarah as already running.
+- Fix applied:
+  - Used `lsappinfo kill -force -hard 58910` to remove the stale LaunchServices registration.
+  - Started a new Sarah instance with `open -n /Users/chaosmac/Applications/Sarah.app`.
+  - Verified normal `open /Users/chaosmac/Applications/Sarah.app` now brings the new instance to front.
+  - Re-ran `codesign --verify --deep --strict --verbose=2`; installed Sarah is valid on disk and satisfies its Designated Requirement.
+- Current state:
+  - Normal running Sarah instance is PID `72435`.
+  - The old kernel-level PID `58910` is still visible in `U` state, but it is no longer registered with LaunchServices and no longer blocks app launch.
+  - A macOS reboot will be needed eventually to clear that unkillable stale process from the kernel process table.
+
+### 2026-05-14 Runtime, OCR, Timeline Pass
+
+User asked whether Sarah should add built-in Codex CLI / Claude Code CLI alongside Hermes and OpenClaw, and asked to implement the five priority capabilities: streaming Gateway client, screen OCR/current-app context, Feishu write workflow, first-run onboarding, and Action Timeline UI, then review/debug.
+
+Implemented this pass:
+
+- Added optional agent runtimes: `codex` and `claude`.
+  - `AgentRuntimeId` is now `openclaw | hermes | codex | claude`.
+  - Mini Settings and menubar runtime labels now understand all four runtimes.
+  - Settings runtime detection now reports Codex CLI and Claude Code CLI install/config status.
+  - Runtime setup opens `codex` or `claude` in Terminal for sign-in.
+  - `AgentService` can spawn:
+    - OpenClaw Gateway WebSocket / gateway call / CLI as before.
+    - Hermes via `hermes --oneshot` as before.
+    - Codex via `codex exec --json --cd <cwd>`.
+    - Claude Code via `claude -p --output-format text`.
+  - Codex JSONL events are parsed for tool progress and assistant messages when available.
+- Added best-effort screenshot OCR for non-browser apps.
+  - New `scripts/ocr-image.swift` uses macOS Vision text recognition for zh-Hans, zh-Hant, and en-US.
+  - `ContextCaptureService.capture()` now attaches `ocrText` when Screen Recording is granted and screenshot OCR succeeds.
+  - Agent prompts include `截图 OCR` and explicitly tell the runtime to use it for Telegram/WeChat/PDF/image/non-browser visible content.
+  - `ContextBar` shows an OCR badge with character count when OCR context exists.
+- Strengthened Feishu/Lark workflow context.
+  - AgentService now resolves `lark-cli` instead of the stale `lark` binary name for local path hints.
+  - Local tool summary continues to tell agents to use the concrete detected Feishu CLI path and to execute write actions only when explicitly requested/approved.
+- Added Action Timeline UI to the answer overlay.
+  - Tool/progress chunks now append to a compact timeline under the progress rail.
+  - Completion/error states add a final timeline event.
+- Extended local tool detection to include Codex and Claude Code so onboarding/settings can surface them next to OpenClaw, Hermes, Obsidian, and Lark.
+- Updated `verify-mini-integration.ts` static checks for Codex/Claude runtime IDs, AgentService binary resolution, OCR context capture, and Action Timeline UI.
+
+Important product decision:
+
+- Codex CLI should be treated as a selectable local coding-agent runtime, not as Sarah's desktop Computer Use layer.
+- OpenAI Codex App has Computer Use behavior in the app context, but the open-source Codex CLI is a terminal/coding agent interface. Sarah's desktop control should remain Sarah-owned: current-app capture, screenshot/OCR, browser/page tools, and Feishu/Lark connectors.
+
+Verification:
+
+- `pnpm -s verify:mini` passed 100/100 checks after adding the new source checks.
+- `./node_modules/.bin/esbuild src/main/services/agent/agent.service.ts --bundle --platform=node --format=cjs --outfile=/tmp/sarah-agent-service.cjs --external:electron --external:uiohook-napi --external:@xitanggg/node-insert-text` passed.
+- `./node_modules/.bin/esbuild src/main/services/clawdesk/settings.service.ts --bundle --platform=node --format=cjs --outfile=/tmp/sarah-settings-service.cjs --external:electron --external:uiohook-napi` passed.
+- `./node_modules/.bin/esbuild src/main/services/local-tools/local-tools.service.ts --bundle --platform=node --format=cjs --outfile=/tmp/sarah-local-tools.cjs --external:electron` passed.
+- `./node_modules/.bin/esbuild src/renderer/src/modules/agent/AgentWindow.tsx --bundle --format=esm --platform=browser --outfile=/tmp/sarah-agent-window.js --loader:.css=empty --loader:.woff2=file` passed, but took about 215 seconds.
+- `swiftc -typecheck scripts/ocr-image.swift` passed.
+- `git diff --check` passed.
+
+Known bugs / open questions:
+
+- `tsc --noEmit --pretty false --skipLibCheck` still stalls locally with no diagnostics, matching the earlier TypeScript toolchain hang. It was killed after waiting.
+- Codex/Claude runtime readiness currently uses local config-directory presence as the non-invasive auth signal. Real auth/tool permission errors are surfaced on first actual run.
+- Claude Code is currently wired as one-shot text output, not stream-json partial streaming. OpenClaw Gateway remains the primary real streaming path.
+- OCR only covers visible screenshot text. It does not unlock hidden Telegram/WeChat history or private app internals.
+- Existing packaged app output under `out/` may be stale relative to source; run the supported packaging/install flow when local Forge stops stalling.
+
+Concrete next steps:
+
+- If deeper streaming parity is needed, add Claude `--output-format stream-json --include-partial-messages` parsing and stronger Codex JSONL event parsing after capturing real event samples.
+- Add a deterministic Feishu quick action for “current page/visible OCR -> Feishu doc/message” using `localTools.execute` or direct lark-cli command schemas, instead of relying only on agent prompt policy.
+- Improve first-run onboarding copy to explicitly show OCR, Feishu login, and Codex/Claude runtime options as separate checks.
+- Re-run full typecheck/test/package once the local TypeScript/Forge stall is resolved.
+
+### 2026-05-14 Computer Use, Codex Source, Streaming Runtime Follow-up
+
+User asked whether the screen OCR context had really been tested, noted that Hermes now has Computer Use, suspected OpenClaw may have an equivalent, mentioned a persistent `/go` style command, and asked to continue integrating Codex/Claude Code and download/test the open-source Codex project.
+
+What changed:
+
+- Verified screen OCR against the live macOS desktop twice.
+  - `screencapture -x /tmp/sarah-ocr-live.png && swift scripts/ocr-image.swift /tmp/sarah-ocr-live.png` successfully read Telegram window text earlier in the session.
+  - A second live test on the Claude window read menu/sidebar/date text, confirming the OCR path works on current screen contents rather than only static fixtures.
+- Downloaded OpenAI Codex source to `~/.sarah/vendor/openai-codex`.
+  - Repository clone succeeded at commit `6d65686313`.
+  - Existing local Codex CLI is `/Applications/Codex.app/Contents/Resources/codex`, version `codex-cli 0.130.0-alpha.5`.
+- Tested Codex CLI JSON streaming.
+  - Earlier real run of `codex exec --json --cd /tmp --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox 'Say exactly: SARAH_CODEX_OK'` produced `{"type":"item.completed","item":{"type":"agent_message","text":"SARAH_CODEX_OK"}}`.
+  - Fixed Sarah's Codex JSONL parser to handle top-level `item`, not only `params.item`.
+  - A later retest hit the Codex account usage limit, so current runtime availability is now blocked by quota until the reset time shown by Codex.
+- Tested Claude Code stream-json mode.
+  - `claude -p --verbose --output-format stream-json --include-partial-messages --permission-mode default 'Say exactly: SARAH_CLAUDE_OK'` streamed a `content_block_delta` with `SARAH_CLAUDE_OK`.
+  - Updated Sarah's Claude runtime from one-shot text output to stream-json with partial message parsing, while ignoring duplicate final assistant objects.
+- Added Hermes Computer Use detection and setup path.
+  - `hermes --version` reports `Hermes Agent v0.13.0 (2026.5.7)`.
+  - `hermes computer-use status` reports `cua-driver: not installed`.
+  - Sarah now lists `cua-driver` in the CLI catalog, reports Hermes Computer Use status, gates the `computer_use` toolset on actual `cua-driver` presence, and exposes a consented setup action that opens `hermes computer-use install` in Terminal.
+  - Sarah does not silently run the installer because it downloads/installs an external macOS automation driver and requires Accessibility/Screen Recording permissions.
+- Added OpenClaw desktop automation detection.
+  - `openclaw skills list` shows `peekaboo` as the OpenClaw screen capture/macOS UI automation skill and currently marks it `needs setup`.
+  - Sarah now surfaces `openclaw-peekaboo` as a local tool with ready/needs-setup status.
+
+Important decisions and tradeoffs:
+
+- Treat Hermes Computer Use and OpenClaw Peekaboo as explicit desktop automation backends, not as always-on hidden behavior.
+- Auto-detect and guide setup by default; require explicit user consent before opening installers or enabling desktop-control capabilities.
+- The user's `/go` reference was not confirmed as an exact installed slash command. Observed related items were Hermes `/goal` and OpenClaw `gog`/`goplaces`; do not hard-code `/go` until a real CLI command sample is captured.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 93/93 checks.
+- `node --experimental-strip-types --check scripts/verify-mini-integration.ts` passed.
+- `swiftc -typecheck scripts/ocr-image.swift` passed.
+- Scoped `git diff --check` passed for the files changed in this follow-up.
+- Non-CI `pnpm -s verify:mini` passed source and packaged ASAR checks but failed packaged smoke with `spawnSync ... ETIMEDOUT` plus macOS Keychain auth errors; this is an environment/runtime permission issue, not a source static-check failure.
+- esbuild bundle checks for changed services stalled on the existing esbuild service process in this local environment and were terminated to avoid leaving long-running validation jobs.
+
+Known bugs / open questions:
+
+- `cua-driver` is not installed, so Hermes Computer Use is detected but not usable yet.
+- OpenClaw `peekaboo` is present but needs setup.
+- Codex CLI is installed and was tested successfully once, but the latest retest is blocked by Codex account usage limits.
+- Full packaged smoke still needs a clean macOS session or permission reset because the current run timed out on Keychain/packaged app startup.
+
+Concrete next steps:
+
+- Add UI affordances in onboarding/settings for “Install Hermes Computer Use backend” and “Set up OpenClaw Peekaboo”.
+- After the user approves, run `hermes computer-use install`, grant macOS permissions, and re-run `hermes computer-use status`.
+- Follow OpenClaw's peekaboo setup instructions and re-run `openclaw skills list`.
+- Once Codex quota resets, rerun the Codex JSONL smoke command and verify Sarah's Action Timeline shows Codex progress in-app.
+
+### 2026-05-15 Onboarding and Local Tool Setup Follow-up
+
+User said “继续” after the Codex/Hermes/OpenClaw follow-up. Continued the implementation by closing the UI/setup gap rather than changing the lower-level runtime code again.
+
+What changed:
+
+- Mini Settings first-run onboarding now has explicit checks for:
+  - Screen OCR / Screen Recording permission.
+  - Desktop automation via Hermes Computer Use or OpenClaw Peekaboo.
+  - Feishu workflow readiness via `lark-cli`.
+- Local Tools setup actions are now executable from the UI after approval.
+  - Approved `setup` capabilities render a `Run` action next to `Revoke`.
+  - The action calls `window.api.localTools.execute({ toolId, capabilityId })` and shows success/error notices.
+- Added an OpenClaw Peekaboo setup capability.
+  - `openclaw skills info peekaboo` confirmed Peekaboo is present but needs setup because the `peekaboo` binary is missing.
+  - Sarah now exposes `openclaw-peekaboo.setup`.
+  - Its executor opens Terminal with `openclaw skills info peekaboo` and prints the install hint `brew install peekaboo`.
+- Kept Hermes Computer Use setup behind explicit user approval.
+  - Existing `hermes-computer-use.setup` still opens `hermes computer-use install` in Terminal.
+
+Important decisions and tradeoffs:
+
+- Setup actions are not run automatically. The UI requires approval first, then a separate Run click. This keeps desktop-control and installer flows explicit.
+- OpenClaw does not expose a direct `skills setup peekaboo` command. The safest setup action is to open the official skill info and show the install hint rather than inventing a hidden install path.
+- The first-run checklist now treats desktop automation and Feishu as optional warnings, not hard blockers, so users can still finish onboarding with basic dictation.
+
+Verification:
+
+- `CI=true pnpm -s verify:mini` passed 98/98 checks.
+- `node --experimental-strip-types --check scripts/verify-mini-integration.ts` passed.
+- Scoped `git diff --check` passed for the files changed in this follow-up.
+- `pnpm exec eslint src/renderer/mini-settings/index.ts scripts/verify-mini-integration.ts` stalled without output in the local toolchain and was stopped.
+
+Known bugs / open questions:
+
+- `cua-driver` is still not installed, so Hermes Computer Use remains setup-ready but not active.
+- `peekaboo` binary is still not installed, so OpenClaw Peekaboo remains setup-ready but not active.
+- Full in-app click-through of the new setup buttons still needs a packaged/dev Electron session; static IPC/API coverage is in place.
+
+Concrete next steps:
+
+- In a live Sarah session, open Mini Settings, approve and run `hermes-computer-use.setup`, then grant macOS permissions and recheck `hermes computer-use status`.
+- Install Peekaboo with Homebrew if approved, then re-run `openclaw skills info peekaboo` and `openclaw skills list`.
+- Add a dedicated Feishu “visible OCR/current page -> doc/message” action once lark-cli command schemas are finalized.
+
+### 2026-05-15 Computer Use Dependency Installation
+
+Continued after adding the setup UI. User had said to continue, and the previously identified blockers were external dependencies for desktop automation.
+
+What changed locally:
+
+- Installed Hermes Computer Use backend with `hermes computer-use install`.
+  - Installed `cua-driver 0.1.9`.
+  - Installed `/Applications/CuaDriver.app`.
+  - Symlinked `/Users/chaosmac/.local/bin/cua-driver`.
+  - The installer also linked CuaDriver skills into Claude Code, Codex, OpenClaw, and OpenCode skill directories.
+- Started CuaDriver daemon with `open -n -g -a CuaDriver --args serve`.
+  - Confirmed process is running as `/Applications/CuaDriver.app/Contents/MacOS/cua-driver serve`.
+  - `hermes computer-use status` now reports `cua-driver: installed at /Users/chaosmac/.local/bin/cua-driver (0.1.9)`.
+  - `cua-driver list_apps` succeeds and returns installed macOS apps, including Telegram, Claude, Codex, ChatGPT, WeChat, Sarah, and others.
+- Installed OpenClaw Peekaboo dependency with `brew install peekaboo`.
+  - Installed `peekaboo 3.2.0`.
+  - `peekaboo --version` returns `Peekaboo 3.2.0`.
+  - `openclaw skills info peekaboo` now reports `peekaboo ✓ Ready`.
+  - `openclaw skills list --eligible` now reports `Skills (66/66 ready)`.
+
+Important decisions and tradeoffs:
+
+- Installing these dependencies required explicit approval because they write outside the repo and affect macOS privacy permissions.
+- `cua-driver check_permissions` currently hangs with a Swift continuation warning even after the daemon starts, so do not use it as a reliable verification command in this environment. Use `hermes computer-use status`, daemon process presence, and `cua-driver list_apps` for smoke verification.
+- Peekaboo still needs Screen Recording permission for screenshots. Homebrew explicitly warned to enable Screen Recording for the Terminal application.
+
+Verification:
+
+- `hermes computer-use status` passed and reports installed `cua-driver`.
+- `cua-driver --version` passed with `0.1.9`.
+- `cua-driver list_apps` passed.
+- `peekaboo --version` passed with `3.2.0`.
+- `openclaw skills info peekaboo` passed and reports ready.
+- `openclaw skills list --eligible` passed and reports all eligible skills ready.
+
+Known bugs / open questions:
+
+- macOS Accessibility and Screen Recording permission prompts may still require manual confirmation by the user for CuaDriver.app, Terminal, Sarah, or Peekaboo depending on which process performs capture/control.
+- OpenClaw still prints stale plugin warnings for `openclaw-weixin`, `dingtalk`, `feishu`, and `acpx`; desktop automation is ready despite those warnings.
+
+Concrete next steps:
+
+- Open Sarah Mini Settings and confirm Hermes Computer Use / OpenClaw Peekaboo move from setup to ready after the 15-second local tool cache refresh.
+- If desktop capture fails, grant Screen Recording to Terminal, Sarah, CuaDriver, and Peekaboo in macOS System Settings.
+- Add a first-class Feishu write action now that the screen/desktop context layer is much stronger.
+
+### 2026-05-15 Feishu Visible Context Save Follow-up
+
+User asked “剩下还有什么要做的，你都去做”. The remaining concrete product gap was the first-class Feishu write workflow for captured screen/current-page context.
+
+What changed:
+
+- Added a `lark-cli.visible-context.create-doc` local tool executor.
+  - It creates a Markdown Feishu/Lark document from Sarah's captured app name, window title, URL, OCR text, user request, and Sarah answer.
+  - It uses `lark-cli docs +create --title ... --markdown ...` because the current installed `lark-cli` v2 create path accepts content but does not preserve a document title in dry-run output.
+  - It parses returned JSON/URLs so the Action Timeline can show the created document link when available.
+- Added a `visible-context.create-doc` write capability to the Feishu/Lark local tool.
+- Added a “存飞书” action in the Command/Quick Ask answer overlay.
+  - First click grants one-time approval and changes the button to “确认飞书”.
+  - Second click creates the Feishu document.
+  - The button is disabled while Sarah is streaming so it saves a settled captured context/answer.
+- Styled the new Feishu action in the answer overlay and expanded the actionbar to five stable columns.
+- Fixed a verification-script hang by dynamically importing `@electron/asar` only for non-CI packaged checks.
+- Extended `scripts/verify-mini-integration.ts` to cover the Feishu visible-context capability, executor, overlay button, and styling.
+
+Important decisions and tradeoffs:
+
+- The Feishu action lives in the answer overlay, not Mini Settings. Mini Settings itself becomes the foreground app when opened, so it cannot reliably represent the original Telegram/browser/PDF context the user wanted to save.
+- Feishu writes require explicit approval and confirmation. This is intentionally stricter than a passive copy/export action because it writes to an external workspace.
+- The current `lark-cli` version reports `1.0.31` available while local is `1.0.19`; do not assume v2 create title semantics until the CLI is upgraded and retested.
+
+Verification:
+
+- `lark-cli docs +create --dry-run --title 'Sarah Capture Dry Run' --markdown ...` passed and showed the expected `create-doc` request with both `title` and `markdown`.
+- `CI=true pnpm -s verify:mini` passed 103/103 checks.
+- `node --experimental-strip-types --check scripts/verify-mini-integration.ts` passed.
+- Scoped `git diff --check` passed for the Feishu/local-tool/overlay/verification files changed in this follow-up.
+
+Known bugs / open questions:
+
+- `pnpm -s typecheck` and scoped `pnpm exec eslint ...` both stalled locally with their child processes at 0% CPU and were terminated. This appears to be a local toolchain hang, not an emitted source error, but it still needs a clean rerun before release.
+- The Feishu create action was verified with `--dry-run`; a live document creation should be tested in the app once the user is comfortable creating a real test doc.
+- `lark-cli auth status` previously showed `tokenStatus: needs_refresh`; the CLI may auto-refresh during a real create, but failures should surface in the Action Timeline.
+
+Concrete next steps:
+
+- In a live Sarah session, trigger Command or Quick Ask over a browser/Telegram/PDF page, wait for the answer, click “存飞书”, then “确认飞书”, and confirm the created document contains source metadata, OCR text, and the answer.
+- Upgrade `lark-cli` from 1.0.19 to 1.0.31 and retest whether v2 create can preserve document titles; switch to v2 if title support is confirmed.
+- Rerun `pnpm -s typecheck` and scoped ESLint in a fresh terminal/session to confirm the local stall is gone.
+
+### 2026-05-15 Prompt Sound, OCR Context, and Local Toolchain Debug
+
+User reported three issues: no audible prompt sound, Sarah still saying it cannot see the current Codex page, and local `pnpm -s typecheck` / scoped ESLint hangs.
+
+What changed:
+
+- Strengthened voice cue playback in `voice-mode-manager.ts`.
+  - Start/stop now call Electron `shell.beep()` first, then play the macOS `Ping.aiff` / `Pop.aiff` cue through `afplay` at volume `0.9`.
+  - This makes the cue audible even when `afplay` succeeds silently or too quietly.
+- Strengthened screenshot OCR context capture in `context-capture.service.ts`.
+  - Sarah no longer skips screenshot capture for Electron's soft `not-determined` screen status; it only skips on hard `denied` / `restricted`.
+  - macOS `screencapture` is now treated as the source of truth because it works locally even when Electron reports an ambiguous status.
+  - OCR now compiles `scripts/ocr-image.swift` into a cached `~/.sarah/ocr-image` binary and reuses it, avoiding Swift interpreter cold-start timeouts.
+- Pinned the project away from the broken local TypeScript 6.x CLI state.
+  - `typescript` is now `^5.9.3`.
+  - Added an explicit `@types/node` devDependency so TypeScript/ESLint do not float through unrelated transitive Node type packages.
+- Repaired two visibly corrupt local dependency folders during diagnosis: `typescript` and `@eslint/eslintrc`.
+
+Important decisions and tradeoffs:
+
+- The prompt sound fix requires restarting/rebuilding the running Sarah app; an already-running Electron process will still have the previous code loaded.
+- Do not rely on `systemPreferences.getMediaAccessStatus('screen')` alone for screen context. In this environment it can under-report access while `screencapture` succeeds.
+- The local `node_modules` tree appears corrupted / FileProvider-affected. Targeted package repair helped individual failures, but it is not a substitute for a clean dependency reinstall.
+
+Verification:
+
+- `/usr/bin/afplay -v 1 /System/Library/Sounds/Ping.aiff` succeeds locally.
+- Direct `screencapture -x -m ...` succeeds and creates a 3840x2160 PNG.
+- Compiled `~/.sarah/ocr-image` successfully OCRed the live screen.
+- `swiftc -typecheck scripts/ocr-image.swift` passed.
+- `node_modules/.bin/tsc --version` returns `Version 5.9.3`.
+- `CI=true node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts` passed 103/103 checks.
+- Scoped `git diff --check` passed for the prompt sound, OCR, package, and lockfile changes.
+
+Known bugs / open questions:
+
+- `pnpm -s typecheck` still produces no output and was terminated by a 45s watchdog. This is currently a local toolchain/dependency-tree stall, not a normal TypeScript diagnostic.
+- Scoped ESLint first failed on an invalid `@eslint/eslintrc/package.json`; after repairing that package it still stalled and was terminated by a watchdog.
+- A full `node_modules` reinstall is still needed before release. Running install/move operations inside this Desktop/FileProvider-backed project path has also shown hangs, so the cleanest path is to reinstall dependencies from a fresh terminal or from a non-FileProvider clone/worktree.
+
+Concrete next steps:
+
+- Restart Sarah and test all three mode hotkeys for audible start/stop cues.
+- In live Sarah, trigger Command/Quick Ask while Codex/Chrome/Telegram is frontmost and confirm Action Timeline shows screenshot/OCR context instead of “no screenshot/no URL”.
+- Clean-reinstall dependencies (`node_modules`) in a stable local path, then rerun `pnpm -s typecheck` and scoped ESLint before shipping.
+
+### 2026-05-15 Mini Hotkey Customization and Runtime Selector Follow-up
+
+User showed the Mini Settings hotkey/runtime cards and asked for customizable buttons, automatic hotkey conflict checks, conflict warnings, and clearer support for OpenAI Codex CLI / Claude Code CLI in addition to OpenClaw and Hermes.
+
+What changed:
+
+- Added a main-process voice-trigger conflict check.
+  - New IPC channel: `claw-desk:check-voice-trigger`.
+  - `HotkeyManager.apply()` now validates the voice trigger before saving/applying it, so the renderer cannot bypass conflict checks.
+  - The check rejects invalid custom keycodes, regular typing keys, Space, Esc, Return, Tab, Backspace, left modifiers, and other unsafe keys that would conflict with normal macOS/app input.
+- Added Mini Settings custom trigger UI.
+  - Preset buttons remain for stable defaults: Right Alt, Right Cmd, F18, F19.
+  - Users can now click `Record key` to capture a supported hardware key from the Mini window.
+  - Users can also enter a raw uiohook keycode and click `Use`.
+  - The UI calls the new conflict-check IPC before saving and shows an immediate warning/error notice when a key is unsafe.
+- Made the Mini runtime selector explicitly four-runtime.
+  - The card now always shows OpenClaw, Hermes, Codex CLI, and Claude Code slots.
+  - If a runtime is absent from backend detection, the renderer still displays a Missing/Install card so Codex/Claude do not visually disappear.
+  - Existing backend runtime detection and connect/setup paths already include Codex and Claude; this pass makes that capability visible in the Mini card.
+- Extended `verify-mini-integration.ts` checks for voice trigger conflict checking, custom hotkey recording UI, the four-runtime selector, and the new IPC channel.
+
+Important decisions and tradeoffs:
+
+- Custom key capture intentionally maps only known safe DOM codes to uiohook keycodes in the UI. Unknown hardware keys can still be configured through the raw keycode field.
+- Regular letters/numbers are blocked because Sarah's trigger is global; allowing them would break normal typing.
+- Codex CLI and Claude Code are treated as selectable agent runtimes, not desktop Computer Use providers. Desktop control remains Sarah/Hermes/OpenClaw tool territory.
+
+Verification:
+
+- `./node_modules/.bin/esbuild src/renderer/mini-settings/index.ts --bundle --platform=browser --format=esm --outfile=/tmp/sarah-mini-settings.js --loader:.css=empty` passed.
+- `node --experimental-strip-types --check` passed for `hotkey-manager.ts`, `claw-desk.handler.ts`, `preload.ts`, `channels.ts`, `ipc-api.ts`, and `verify-mini-integration.ts`.
+- `CI=true node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts` passed 107/107 checks.
+- Scoped `git diff --check` passed for the hotkey/runtime follow-up files.
+
+Known bugs / open questions:
+
+- Main-process esbuild bundle checks still stalled in this local dependency tree and were killed; this is the same `node_modules` / FileProvider corruption problem documented above.
+- A live Mini Settings interaction test still requires restarting/rebuilding Sarah so the running app loads the new renderer and IPC code.
+
+Concrete next steps:
+
+- Restart/rebuild Sarah and test: preset switch, `Record key`, raw keycode apply, unsafe letter/Space rejection, and Codex/Claude runtime cards.
+- After dependency cleanup, rerun full `pnpm -s typecheck`, scoped ESLint, and packaging.
+
+### 2026-05-15 Chinese UI, Permission Probe, and Packaging Debug
+
+User tested the app and reported the visible app still showed only two runtime choices, English UI, a false `Missing Screen` warning despite permissions being granted, confusing Dictate/Command color/meaning, a noisy Local Tools block, and voice actions not answering.
+
+What changed:
+
+- Local dependency repair:
+  - Renamed the corrupt dependency tree to `node_modules.broken-1778871367`.
+  - Reinstalled dependencies with `pnpm install --ignore-scripts`; install completed in 4.1s and no longer hangs during resolution.
+- Fixed the real ASR build error exposed by packaging:
+  - Restored `src/main/services/asr/lib/config.ts`.
+  - It now exports `loadASRConfig`, `isASRConfigured`, `ConfigurationError`, and `ASREnvConfig`, delegating to the centralized credential/env resolver.
+- Fixed the false screen-permission warning at the status layer:
+  - Added `getScreenRecordingStatusForUi()` in `main.ts`.
+  - The UI now probes real `screencapture -x -m` capability with a short cache and treats successful capture as `granted`, matching the OCR capture behavior.
+  - Startup permission notification also uses this probe, so Sarah should stop reporting `Missing Screen` when screenshot capture works.
+- Localized the primary UI surfaces to Chinese:
+  - Menubar popover labels now use `听写 / 命令 / 快问`, Chinese permission/status rows, Chinese footer actions, and Chinese loading/error copy.
+  - Mini Settings primary labels, runtime card, hotkey card, health card, action buttons, first-run checklist, and notices were converted to Chinese.
+- Clarified primary actions:
+  - Menubar popover now shows three actions: `听写`, `命令`, `快问`.
+  - The popover hides itself after starting a voice action so Sarah does not remain the frontmost app and pollute Command/Quick Ask context capture.
+  - Blue remains the primary/default action (`听写`); agent actions are secondary.
+- Reduced Local Tools visual weight:
+  - Local Tools is now a collapsed `高级集成` section in Mini Settings.
+  - Copy explains these are OpenClaw/Hermes/Obsidian/Feishu external integrations and are not needed for normal dictation/asking.
+- Runtime selector:
+  - Mini Settings still forces four slots through `runtimeOptions`: OpenClaw, Hermes, Codex CLI, Claude Code.
+  - If a runtime is missing from backend detection, the renderer creates a Missing/Install card so it remains visible.
+
+Important decisions and tradeoffs:
+
+- `Screen Recording` status from Electron alone is not reliable enough on this machine. A real `screencapture` probe is the practical UI truth.
+- `Local Tools` are useful for external write/control capabilities, but they should not dominate the daily control surface.
+- Command means “send my spoken instruction plus current context/screen to the selected agent runtime”; Quick Ask means “ask the runtime a question without writing into the current app”; Dictation means “turn speech into text and insert/copy it”.
+
+Verification:
+
+- `CI=true node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts` passed 109/109 before a later FileProvider `ECANCELED` read appeared in a subsequent rerun.
+- `git diff --check` passed for the UI/status files touched in this follow-up.
+- Production packaging progressed past the previous dependency stall and reached actual Vite/Rollup compilation.
+- Packaging exposed and then confirmed the ASR config export issue; that file was restored.
+
+Known bugs / open questions:
+
+- `pnpm run package` still does not complete reliably in this Desktop/FileProvider-backed working tree. After dependency reinstall it progressed into Vite builds, but later runs either timed out in main target build or stalled after the script header.
+- `pnpm -s typecheck` and scoped ESLint still time out without diagnostics in this directory even after dependency reinstall.
+- There is one unkillable stale esbuild process (`pid 18515`, `U` state) from an earlier stuck bundle command; it no longer has children but will likely need a reboot to disappear.
+- Because packaging did not finish, the installed/running Sarah app is still expected to show the old UI until a successful package/install run is completed.
+
+Concrete next steps:
+
+- Move or clone the project to a non-Desktop, non-FileProvider path and run `pnpm install`, `pnpm -s typecheck`, scoped ESLint, `pnpm run package`, then `pnpm run install:app`.
+- After successful install, live-test: four runtime cards, Chinese popover/settings, no false Missing Screen, three voice actions, and Command/Quick Ask answer overlay.
+
+### 2026-05-16 Clean Package, Install, and GitHub Publish Prep
+
+User asked to rebuild/package Sarah, reinstall it, restart/run the packaged app, test the result, then push the completed work to GitHub and merge it.
+
+What changed:
+
+- Created/used a clean non-Desktop clone at `/Users/chaosmac/Code/sarah-desk-build` because the Desktop/FileProvider working tree had stale hung esbuild state and unreliable filesystem reads.
+- Applied the current Sarah patch set to the clean clone and installed dependencies there with `pnpm install --ignore-scripts`.
+- Fixed clean-clone packaging by making `.env` an optional Forge `extraResource`.
+  - `forge.config.ts` now always bundles `assets/tray-icon.png`.
+  - It bundles `.env` only when a local `.env` exists, so fresh clones and CI no longer fail with `ENOENT: lstat './.env'`.
+- Fixed packaged-app startup noise when `.env` is absent.
+  - `main.ts` now checks `fs.existsSync(envPath)` before calling `dotenv.config`.
+  - Missing packaged `.env` is logged as an intentional optional skip, not an ERROR.
+- Fixed TypeScript 5.9 typecheck blockers found in the clean clone.
+  - `tsconfig.json` now uses `"ignoreDeprecations": "5.0"` instead of the unsupported `"6.0"`.
+  - `AgentService` narrows child-process stdout/stderr before registering listeners.
+  - Removed an unused Claude helper that produced scoped ESLint warning noise.
+
+Important decisions and tradeoffs:
+
+- `.env` remains local/private and is not required for packaging. Users can still configure credentials through the app settings or provide a local `.env` when packaging for themselves.
+- The install script signs with the stable Apple Development identity. The first clean-clone install reset TCC because `.last-install-authority` did not exist in that clone; the next install detected the same identity and kept TCC grants.
+- The clean clone is now the reliable build/publish source. The Desktop working tree still has a stale unkillable esbuild process from earlier and should not be used for final packaging until the machine is restarted or that state clears.
+
+Verification:
+
+- `pnpm run install:app` completed successfully in `/Users/chaosmac/Code/sarah-desk-build`.
+- Installed app: `/Users/chaosmac/Applications/Sarah.app`.
+- App was signed as `Authority=Apple Development: 3043755156@qq.com (P27KG3UBWZ)`.
+- Final reinstall kept TCC grants because the signing authority matched the previous install.
+- `pnpm -s typecheck` passed in the clean clone.
+- Scoped ESLint passed for `src/main.ts`, `forge.config.ts`, `src/main/services/agent/agent.service.ts`, `src/main/services/push-to-talk/voice-mode-manager.ts`, `src/main/services/hotkey/hotkey-manager.ts`, `src/renderer/mini-settings/index.ts`, and `src/renderer/menubar-popover/index.tsx`.
+- `CI=true node --experimental-strip-types --no-warnings scripts/verify-mini-integration.ts` passed 109/109.
+- `swiftc -typecheck scripts/ocr-image.swift` passed.
+- Packaged smoke test passed with `SARAH_SMOKE_TEST=1 /Users/chaosmac/Applications/Sarah.app/Contents/MacOS/Sarah`.
+  - `tray-created`: pass.
+  - `legacy-debug-console-hidden`: pass.
+  - `recorder-window`: pass.
+  - `recorder-ipc`: pass.
+  - Startup permission summary reported `screenRecGranted: true`.
+
+Known bugs / open questions:
+
+- The clean smoke test validates startup, tray/window wiring, recorder hidden window, IPC, and screen permission probe. It does not physically press the user’s global hotkeys or verify audible output through speakers.
+- If the user lost permissions after the first clean-clone install reset, re-grant once in macOS settings; subsequent installs signed by the same identity should keep grants.
+
+Concrete next steps:
+
+- Commit this clean-clone state on a feature branch, push it to GitHub, open a PR, and attempt to merge it automatically.
+- If GitHub branch protection blocks immediate merge, leave the PR URL and exact blocking check/status for the next agent or user.

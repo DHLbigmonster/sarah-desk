@@ -125,7 +125,7 @@
 }
 
 .agent-window__context {
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .context-bar {
@@ -149,7 +149,8 @@
 }
 
 .context-bar__title,
-.context-bar__url {
+.context-bar__url,
+.context-bar__ocr {
   min-width: 0;
   color: var(--ink-muted);
   font-size: 12px;
@@ -158,10 +159,120 @@
   white-space: nowrap;
 }
 
+.context-bar__ocr {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid rgba(45, 49, 55, 0.1);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.54);
+  color: #58606b;
+  font-size: 10.5px;
+  font-weight: 720;
+}
+
 .context-bar__title::before {
   content: '/';
   margin-right: 8px;
   color: #b1b5bb;
+}
+
+.agent-window__progress-rail {
+  display: grid;
+  grid-template-columns: auto minmax(28px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  margin-bottom: 12px;
+  padding: 6px 9px;
+  border: 1px solid rgba(45, 49, 55, 0.09);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.agent-window__progress-mode {
+  color: #2b3550;
+  font-size: 11px;
+  font-weight: 780;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.agent-window__progress-line {
+  position: relative;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(45, 49, 55, 0.1);
+}
+
+.agent-window__progress-line::after {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  content: '';
+  background: var(--accent);
+  opacity: 0.72;
+}
+
+.agent-window__progress-rail[data-state='thinking'] .agent-window__progress-line::after {
+  animation: agent-window-progress 1.2s ease-in-out infinite;
+}
+
+.agent-window__progress-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: 11px;
+  font-weight: 660;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-window__timeline {
+  display: grid;
+  gap: 5px;
+  margin: -4px 0 12px;
+  padding: 8px 10px;
+  border: 1px solid rgba(45, 49, 55, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.agent-window__timeline-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 8px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.agent-window__timeline-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(69, 97, 168, 0.52);
+}
+
+.agent-window__timeline-item[data-active='true'] .agent-window__timeline-dot {
+  background: var(--accent);
+  animation: agent-window-pulse 1.15s ease-in-out infinite;
+}
+
+.agent-window__timeline-tool {
+  color: var(--ink-soft);
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.agent-window__timeline-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-window__question-shell {
@@ -412,7 +523,7 @@
 
 .agent-window__actionbar {
   display: grid;
-  grid-template-columns: 1.35fr 1fr 1fr 1fr;
+  grid-template-columns: 1.25fr 0.95fr 1fr 0.9fr 0.9fr;
   gap: 9px;
   padding-top: 13px;
   border-top: 1px solid var(--line);
@@ -449,6 +560,34 @@
 
 .agent-window__action-btn[data-copied='true'] {
   color: var(--success);
+}
+
+.agent-window__action-btn--feishu {
+  border-color: rgba(39, 138, 87, 0.18);
+  background: rgba(39, 138, 87, 0.055);
+  color: #286247;
+}
+
+.agent-window__action-btn--feishu:hover:not(:disabled) {
+  border-color: rgba(39, 138, 87, 0.3);
+  background: rgba(39, 138, 87, 0.1);
+  color: #1f533b;
+}
+
+.agent-window__action-btn--feishu[data-state='confirm'] {
+  border-color: rgba(69, 97, 168, 0.28);
+  background: rgba(69, 97, 168, 0.1);
+  color: #24396f;
+}
+
+.agent-window__action-btn--feishu[data-state='saved'] {
+  color: var(--success);
+}
+
+.agent-window__action-btn--feishu[data-state='error'] {
+  border-color: rgba(185, 74, 61, 0.24);
+  background: rgba(185, 74, 61, 0.075);
+  color: var(--danger);
 }
 
 .agent-window__action-btn--primary {
@@ -657,5 +796,22 @@
   40% {
     opacity: 1;
     transform: translateY(-3px);
+  }
+}
+
+@keyframes agent-window-progress {
+  0% {
+    left: -42%;
+    width: 42%;
+  }
+
+  55% {
+    left: 20%;
+    width: 58%;
+  }
+
+  100% {
+    left: 100%;
+    width: 42%;
   }
 }

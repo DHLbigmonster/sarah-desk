@@ -17,6 +17,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { AgentContext, AgentMessage } from '../../../../shared/types/agent';
+import type { LocalToolApprovalScope } from '../../../../shared/types/local-tools';
 import { ContextBar } from './components/ContextBar';
 
 function CodeBlockCopyButton({ code }: { code: string }): ReactNode {
@@ -70,6 +71,13 @@ function findLatestMessage(messages: AgentMessage[], role: AgentMessage['role'])
   return null;
 }
 
+interface TimelineItem {
+  id: string;
+  label: string;
+  toolName?: string;
+  at: number;
+}
+
 export function AgentWindow(): ReactNode {
   const [context, setContext] = useState<AgentContext | null>(null);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -80,6 +88,8 @@ export function AgentWindow(): ReactNode {
   const [followUpText, setFollowUpText] = useState('');
   const [isRecordingFollowUp, setIsRecordingFollowUp] = useState(false);
   const [progressText, setProgressText] = useState('正在思考…');
+  const [timeline, setTimeline] = useState<TimelineItem[]>([]);
+  const [feishuSaveState, setFeishuSaveState] = useState<'idle' | 'confirm' | 'saving' | 'saved' | 'error'>('idle');
 
   const streamingIdRef = useRef<string | null>(null);
   const firstChunkNotifiedRef = useRef(false);
@@ -89,6 +99,20 @@ export function AgentWindow(): ReactNode {
 
   const syncVisibleAnswer = useCallback((assistantMessage: AgentMessage | null) => {
     return assistantMessage?.content ?? '';
+  }, []);
+
+  const pushTimeline = useCallback((item: Omit<TimelineItem, 'id' | 'at'>) => {
+    setTimeline((prev) => {
+      const next = [
+        ...prev,
+        {
+          ...item,
+          id: crypto.randomUUID(),
+          at: Date.now(),
+        },
+      ];
+      return next.slice(-7);
+    });
   }, []);
 
   const handleHide = useCallback(() => {
@@ -102,6 +126,47 @@ export function AgentWindow(): ReactNode {
       setTimeout(() => setCopied(false), 2000);
     });
   }, []);
+
+  const latestUser = findLatestMessage(messages, 'user');
+  const latestAssistant = findLatestMessage(messages, 'assistant');
+  const visibleAnswer = syncVisibleAnswer(latestAssistant);
+  const showCursor = isStreaming;
+  const showThinking = !visibleAnswer && isStreaming;
+
+  const handleSaveToFeishu = useCallback(async () => {
+    if (!context || isStreaming || feishuSaveState === 'saving') return;
+    const capabilityId = 'visible-context.create-doc';
+    const scope: LocalToolApprovalScope = 'one_time';
+
+    if (feishuSaveState !== 'confirm') {
+      await window.api.localTools.setApproval('lark-cli', capabilityId, scope);
+      setFeishuSaveState('confirm');
+      pushTimeline({ label: '再次点击确认写入飞书', toolName: 'Feishu' });
+      return;
+    }
+
+    setFeishuSaveState('saving');
+    pushTimeline({ label: '正在创建飞书文档', toolName: 'Feishu' });
+    const result = await window.api.localTools.execute({
+      toolId: 'lark-cli',
+      capabilityId,
+      args: {
+        appName: context.appName,
+        windowTitle: context.windowTitle,
+        url: context.url ?? '',
+        ocrText: context.ocrText ?? '',
+        question: latestUser?.content ?? '',
+        answer: visibleAnswer,
+      },
+    });
+    if (result.success) {
+      setFeishuSaveState('saved');
+      pushTimeline({ label: result.output ?? '已创建飞书文档', toolName: 'Feishu' });
+      return;
+    }
+    setFeishuSaveState('error');
+    pushTimeline({ label: result.error ?? '飞书写入失败', toolName: 'Feishu' });
+  }, [context, feishuSaveState, isStreaming, latestUser?.content, pushTimeline, visibleAnswer]);
 
   const handleAbort = useCallback(() => {
     void window.api.agent.abort();
@@ -125,6 +190,7 @@ export function AgentWindow(): ReactNode {
     setIsStreaming(true);
     setCopied(false);
     setProgressText('正在思考…');
+    setTimeline([]);
     streamingIdRef.current = assistantMsg.id;
     firstChunkNotifiedRef.current = false;
   }, [messages, context]);
@@ -152,6 +218,7 @@ export function AgentWindow(): ReactNode {
     setIsStreaming(true);
     setCopied(false);
     setProgressText('正在思考…');
+    setTimeline([]);
     setFollowUpText('');
     setFollowUpOpen(false);
     streamingIdRef.current = assistantMsg.id;
@@ -179,12 +246,6 @@ export function AgentWindow(): ReactNode {
       setIsRecordingFollowUp(false);
     }
   }, [isRecordingFollowUp, isStreaming]);
-
-  const latestUser = findLatestMessage(messages, 'user');
-  const latestAssistant = findLatestMessage(messages, 'assistant');
-  const visibleAnswer = syncVisibleAnswer(latestAssistant);
-  const showCursor = isStreaming;
-  const showThinking = !visibleAnswer && isStreaming;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -216,6 +277,8 @@ export function AgentWindow(): ReactNode {
       setFollowUpText('');
       setIsRecordingFollowUp(false);
       setProgressText('正在思考…');
+      setTimeline([]);
+      setFeishuSaveState('idle');
       if (streamingIdRef.current) {
         streamingIdRef.current = null;
       }
@@ -227,6 +290,7 @@ export function AgentWindow(): ReactNode {
       if (chunk.type === 'tool_use') {
         const label = chunk.text || (chunk.toolName ? `正在使用 ${chunk.toolName}` : '正在调用工具…');
         setProgressText(label);
+        pushTimeline({ label, toolName: chunk.toolName });
         return;
       }
       if (!chunk.text) return;
@@ -248,6 +312,7 @@ export function AgentWindow(): ReactNode {
     const unsubDone = window.api.agent.onStreamDone(() => {
       setIsStreaming(false);
       setProgressText('就绪');
+      pushTimeline({ label: '完成', toolName: 'Sarah' });
       if (!streamingIdRef.current) return;
       const activeId = streamingIdRef.current;
       setMessages((prev) =>
@@ -261,6 +326,7 @@ export function AgentWindow(): ReactNode {
     const unsubError = window.api.agent.onStreamError((error) => {
       setIsStreaming(false);
       setProgressText('出错');
+      pushTimeline({ label: error, toolName: 'Error' });
       if (!streamingIdRef.current) return;
       const activeId = streamingIdRef.current;
       setMessages((prev) =>
@@ -300,6 +366,8 @@ export function AgentWindow(): ReactNode {
       setFollowUpText('');
       setIsRecordingFollowUp(false);
       setProgressText('正在思考…');
+      setTimeline([]);
+      setFeishuSaveState('idle');
       streamingIdRef.current = assistantMessage.id;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -330,6 +398,8 @@ export function AgentWindow(): ReactNode {
       setFollowUpText('');
       setIsRecordingFollowUp(false);
       setProgressText('就绪');
+      setTimeline(payload.isError ? [{ id: crypto.randomUUID(), label: payload.result, toolName: 'Error', at: Date.now() }] : []);
+      setFeishuSaveState('idle');
       streamingIdRef.current = null;
       firstChunkNotifiedRef.current = false;
       setMessages([userMessage, assistantMessage]);
@@ -343,7 +413,7 @@ export function AgentWindow(): ReactNode {
       unsubExternalSubmit();
       unsubShowResult();
     };
-  }, []);
+  }, [pushTimeline]);
 
   useEffect(() => {
     const unsubscribe = window.api.asr.onResult((result) => {
@@ -395,6 +465,12 @@ export function AgentWindow(): ReactNode {
 
   const statusState = isStreaming ? 'thinking' : 'done';
   const statusLabel = isStreaming ? progressText : '就绪';
+  const overlayMode = context?.appName === 'Voice Query' ? 'Quick Ask' : 'Command';
+  const progressLabel = isStreaming
+    ? statusLabel
+    : visibleAnswer
+      ? 'Answer ready'
+      : 'Waiting for instruction';
 
   return (
     <div className="agent-window">
@@ -416,6 +492,24 @@ export function AgentWindow(): ReactNode {
       <div className="agent-window__context">
         <ContextBar context={context} />
       </div>
+
+      <div className="agent-window__progress-rail" data-state={statusState}>
+        <span className="agent-window__progress-mode">{overlayMode}</span>
+        <span className="agent-window__progress-line" />
+        <span className="agent-window__progress-label">{progressLabel}</span>
+      </div>
+
+      {timeline.length > 0 && (
+        <div className="agent-window__timeline" aria-label="执行进度">
+          {timeline.map((item, index) => (
+            <div className="agent-window__timeline-item" key={item.id} data-active={index === timeline.length - 1 && isStreaming}>
+              <span className="agent-window__timeline-dot" />
+              <span className="agent-window__timeline-tool">{item.toolName ?? 'Sarah'}</span>
+              <span className="agent-window__timeline-label">{item.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {latestUser?.content && (
         <div className="agent-window__question-shell">
@@ -498,6 +592,23 @@ export function AgentWindow(): ReactNode {
           data-copied={copied}
         >
           {copied ? '已复制' : '复制'}
+        </button>
+        <button
+          className="agent-window__action-btn agent-window__action-btn--feishu"
+          onClick={handleSaveToFeishu}
+          disabled={!context || isStreaming || feishuSaveState === 'saving'}
+          data-state={feishuSaveState}
+          title="用当前捕获的 App、URL、OCR 和回答创建飞书文档"
+        >
+          {feishuSaveState === 'confirm'
+            ? '确认飞书'
+            : feishuSaveState === 'saving'
+              ? '写入中'
+              : feishuSaveState === 'saved'
+                ? '已存飞书'
+                : feishuSaveState === 'error'
+                  ? '重试飞书'
+                  : '存飞书'}
         </button>
         <button className="agent-window__action-btn" onClick={handleRetry} disabled={!latestUser || !context || isStreaming}>
           重试

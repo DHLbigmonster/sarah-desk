@@ -9,6 +9,8 @@ const {
   mockFloatingWindow,
   mockAgentWindow,
   mockGlobalShortcut,
+  mockShell,
+  mockTextInputService,
 } = vi.hoisted(() => ({
   mockKeyboardService: {
     register: vi.fn(),
@@ -25,6 +27,7 @@ const {
   mockFloatingWindow: {
     sendVoiceState: vi.fn(),
     sendStatus: vi.fn(),
+    sendNotice: vi.fn(),
     sendError: vi.fn(),
     hide: vi.fn(),
     forceHide: vi.fn(),
@@ -32,6 +35,8 @@ const {
     allowHide: vi.fn(),
   },
   mockAgentWindow: {
+    isVisible: vi.fn().mockReturnValue(false),
+    hide: vi.fn(),
     showWithContext: vi.fn(),
     sendExternalSubmit: vi.fn(),
   },
@@ -39,10 +44,17 @@ const {
     register: vi.fn().mockReturnValue(true),
     unregister: vi.fn(),
   },
+  mockShell: {
+    beep: vi.fn(),
+  },
+  mockTextInputService: {
+    insert: vi.fn().mockReturnValue({ success: true, destination: 'inserted' }),
+  },
 }));
 
 vi.mock('electron', () => ({
   globalShortcut: mockGlobalShortcut,
+  shell: mockShell,
 }));
 
 vi.mock('electron-log', () => ({
@@ -59,7 +71,7 @@ vi.mock('../../windows', () => ({ floatingWindow: mockFloatingWindow }));
 vi.mock('../../windows/agent', () => ({ agentWindow: mockAgentWindow }));
 
 vi.mock('../text-input', () => ({
-  textInputService: { insert: vi.fn().mockReturnValue({ success: true }) },
+  textInputService: mockTextInputService,
 }));
 
 vi.mock('../agent', () => ({
@@ -101,6 +113,7 @@ describe('VoiceModeManager — state transitions', () => {
     expect(mgr.currentState).toBe('dictation_recording');
     expect(mgr.isRecording).toBe(true);
     expect(mockAsrService.start).toHaveBeenCalledOnce();
+    expect(mockShell.beep).toHaveBeenCalledOnce();
   });
 
   it('transitions dictation_recording → idle on stopDictation', async () => {
@@ -109,6 +122,7 @@ describe('VoiceModeManager — state transitions', () => {
     expect(mgr.currentState).toBe('idle');
     expect(mgr.isRecording).toBe(false);
     expect(mockAsrService.stop).toHaveBeenCalledOnce();
+    expect(mockShell.beep).toHaveBeenCalledTimes(2);
   });
 
   it('force-hides immediately after successful dictation insert', async () => {
@@ -116,6 +130,19 @@ describe('VoiceModeManager — state transitions', () => {
     await (mgr as unknown as VMM).stopDictation();
     expect(mockFloatingWindow.forceHide).toHaveBeenCalledOnce();
     expect(mockFloatingWindow.sendStatus).not.toHaveBeenCalledWith('done');
+  });
+
+  it('shows a success notice when dictation falls back to clipboard', async () => {
+    mockTextInputService.insert.mockReturnValueOnce({
+      success: true,
+      destination: 'clipboard',
+      error: 'No focused text target detected; copied dictation to clipboard.',
+    });
+    await (mgr as unknown as VMM).startDictation();
+    await (mgr as unknown as VMM).stopDictation();
+    expect(mockFloatingWindow.sendNotice).toHaveBeenCalledWith('刚刚说的内容已经进入到剪切板了');
+    expect(mockFloatingWindow.sendError).not.toHaveBeenCalled();
+    expect(mockFloatingWindow.forceHide).not.toHaveBeenCalled();
   });
 
   // ── Command ──────────────────────────────────────────────────────────────────
@@ -132,6 +159,7 @@ describe('VoiceModeManager — state transitions', () => {
     expect(mgr.currentState).toBe('idle');
     expect(mockAgentWindow.showWithContext).toHaveBeenCalledOnce();
     expect(mockAgentWindow.sendExternalSubmit).toHaveBeenCalledOnce();
+    expect(mockTextInputService.insert).not.toHaveBeenCalled();
   });
 
   it('resets overlay state before hiding after command submit', async () => {
@@ -154,6 +182,7 @@ describe('VoiceModeManager — state transitions', () => {
     await (mgr as unknown as VMM).stopQuickAsk();
     expect(mgr.currentState).toBe('idle');
     expect(mockAgentWindow.sendExternalSubmit).toHaveBeenCalledOnce();
+    expect(mockTextInputService.insert).not.toHaveBeenCalled();
   });
 
   it('resets overlay state before hiding after quick ask submit', async () => {

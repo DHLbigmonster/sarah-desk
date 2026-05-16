@@ -15,6 +15,8 @@ export interface AgentContext {
   url?: string;
   /** Path to screenshot PNG saved to temp directory */
   screenshotPath?: string;
+  /** Best-effort OCR text extracted from the screenshot's visible region */
+  ocrText?: string;
 }
 
 /**

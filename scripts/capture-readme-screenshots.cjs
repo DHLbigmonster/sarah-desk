@@ -28,6 +28,7 @@ const channels = {
   MINI_OPEN_PERMISSIONS: 'mini:open-permissions',
   MINI_TOGGLE_DICTATION: 'mini:toggle-dictation',
   MINI_TOGGLE_COMMAND: 'mini:toggle-command',
+  MINI_TOGGLE_QUICK_ASK: 'mini:toggle-quick-ask',
   MINI_QUIT: 'mini:quit',
   MINI_SHOW_LOGS: 'mini:show-logs',
   MINI_COMPLETE_ONBOARDING: 'mini:complete-onboarding',
@@ -51,6 +52,7 @@ function registerMocks() {
     [channels.MINI_OPEN_PERMISSIONS]: ok,
     [channels.MINI_TOGGLE_DICTATION]: ok,
     [channels.MINI_TOGGLE_COMMAND]: ok,
+    [channels.MINI_TOGGLE_QUICK_ASK]: ok,
     [channels.MINI_QUIT]: ok,
     [channels.MINI_SHOW_LOGS]: ok,
     [channels.MINI_COMPLETE_ONBOARDING]: ok,
@@ -137,7 +139,7 @@ function createMiniStatus() {
       keyboardHookActive: true,
       currentVoiceState: 'idle',
       hotkeyConfig: {
-        voiceTriggerKey: 'ControlRight',
+        voiceTriggerKey: 'CtrlRight',
         customKeycode: null,
         toggleWindow: 'CommandOrControl+Shift+Space',
       },
@@ -308,8 +310,8 @@ async function main() {
   const outputs = [];
   outputs.push(await captureWindow({
     name: 'product-recording.png',
-    width: 300,
-    height: 80,
+    width: 280,
+    height: 48,
     url: floatingUrl,
     zoom: 2,
     setup: async (win) => {

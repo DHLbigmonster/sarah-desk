@@ -44,20 +44,22 @@ function regex(filePath: string, pattern: RegExp, label: string): boolean {
   return ok;
 }
 
-function asarList(asarPath: string): string {
-  return execFileSync('npx', ['asar', 'list', asarPath], {
-    cwd: root,
-    encoding: 'utf8',
-    maxBuffer: 20 * 1024 * 1024,
-  });
+let asarModule: typeof import('@electron/asar') | null = null;
+
+async function getAsarModule(): Promise<typeof import('@electron/asar')> {
+  asarModule ??= await import('@electron/asar');
+  return asarModule;
 }
 
-function extractAsarToTemp(asarPath: string): string {
+async function asarList(asarPath: string): Promise<string> {
+  const { listPackage } = await getAsarModule();
+  return listPackage(asarPath, { isPack: true }).join('\n');
+}
+
+async function extractAsarToTemp(asarPath: string): Promise<string> {
+  const { extractAll } = await getAsarModule();
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sarah-mini-verify-'));
-  execFileSync('npx', ['asar', 'extract', asarPath, outDir], {
-    cwd: root,
-    stdio: 'ignore',
-  });
+  extractAll(asarPath, outDir);
   return outDir;
 }
 
@@ -84,6 +86,7 @@ section('Static source checks');
   'src/main/services/local-tools/approval-store.ts',
   'src/main/services/local-tools/executor.ts',
   'src/main/services/text-input/text-input.service.ts',
+  'scripts/ocr-image.swift',
   'src/main/ipc/asr.handler.ts',
   'src/main/ipc/local-tools.handler.ts',
   'src/main/windows/floating.ts',
@@ -101,6 +104,7 @@ contains('src/main.ts', 'function createRecorderWindow()', 'recorderWindow creat
 contains('src/main.ts', 'createRecorderWindow();', 'recorderWindow startup call');
 contains('index.html', '/src/renderer.ts', 'recorder html renderer entry');
 contains('src/preload.ts', 'sendAudio', 'preload exposes sendAudio');
+contains('src/preload.ts', 'onNotice', 'preload exposes ASR notice listener');
 contains('src/preload.ts', 'signalRecorderReady', 'preload exposes recorder ready');
 contains('src/preload.ts', 'onRecorderPing', 'preload exposes recorder ping listener');
 contains('src/preload.ts', 'localToolsApi', 'preload exposes local tools API');
@@ -113,6 +117,38 @@ contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'await asrServi
 contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'await asrService.stop()', 'VoiceModeManager stops ASR');
 contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'dictationRefinementService.refine', 'dictation refinement after ASR');
 contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'textInputService.insert', 'text insertion after refinement');
+contains('src/main/services/push-to-talk/voice-mode-manager.ts', '/usr/bin/afplay', 'voice cue sound playback on mode start/stop');
+contains('src/main/services/push-to-talk/voice-mode-manager.ts', 'floatingWindow.sendNotice', 'clipboard fallback success notice');
+contains('src/main/services/text-input/text-input.service.ts', 'clipboard.writeText', 'dictation clipboard fallback');
+contains('src/main/services/text-input/text-input.service.ts', 'AXFocusedUIElement', 'focused text target detection');
+contains('src/shared/types/clawdesk-settings.ts', "'codex' | 'claude'", 'Codex and Claude runtime ids');
+contains('src/main/services/hotkey/hotkey-manager.ts', 'checkVoiceTrigger', 'voice trigger conflict check');
+contains('src/renderer/mini-settings/index.ts', '录入按键', 'custom hotkey recording UI');
+contains('src/renderer/mini-settings/index.ts', 'runtimeOptions', 'four-runtime Mini selector');
+contains('src/renderer/menubar-popover/index.tsx', '屏幕录制', 'Chinese menubar permission label');
+contains('src/main.ts', 'getScreenRecordingStatusForUi', 'screen permission probe for UI');
+contains('src/main/services/agent/agent.service.ts', "this.codexBin = resolveBinary('codex')", 'AgentService resolves Codex CLI');
+contains('src/main/services/agent/agent.service.ts', "this.claudeBin = resolveBinary('claude')", 'AgentService resolves Claude Code CLI');
+contains('src/main/services/agent/agent.service.ts', 'const topLevelItem', 'Codex JSONL top-level item parser');
+contains('src/main/services/agent/agent.service.ts', 'parseClaudeStreamJsonLine', 'Claude stream-json parser');
+contains('src/main/services/agent/agent.service.ts', '--output-format', 'Claude Code stream-json spawn args');
+contains('src/main/services/agent/agent.service.ts', 'computer_use', 'Hermes Computer Use toolset gating');
+contains('src/main/services/agent/context-capture.service.ts', 'captureScreenshotOcr', 'screen OCR context capture');
+contains('src/main/services/local-tools/local-tools.service.ts', 'hermes-computer-use', 'Hermes Computer Use local tool');
+contains('src/main/services/local-tools/local-tools.service.ts', 'openclaw-peekaboo', 'OpenClaw peekaboo local tool');
+contains('src/main/services/local-tools/local-tools.service.ts', 'visible-context.create-doc', 'Feishu visible-context document capability');
+contains('src/main/services/local-tools/executor.ts', 'hermes computer-use install', 'Hermes Computer Use setup executor');
+contains('src/main/services/local-tools/executor.ts', 'openclaw skills info peekaboo', 'OpenClaw Peekaboo setup executor');
+contains('src/main/services/local-tools/executor.ts', 'lark-cli.visible-context.create-doc', 'Feishu visible-context document executor');
+contains('src/main/services/clawdesk/settings.service.ts', 'cua-driver', 'cua-driver catalog and status');
+contains('src/renderer/mini-settings/index.ts', '屏幕 OCR', 'onboarding Screen OCR check');
+contains('src/renderer/mini-settings/index.ts', '桌面自动化', 'onboarding desktop automation check');
+contains('src/renderer/mini-settings/index.ts', '飞书工作流', 'onboarding Feishu workflow check');
+contains('src/renderer/mini-settings/index.ts', 'executeLocalTool', 'local tool setup run action');
+contains('src/renderer/src/modules/agent/AgentWindow.tsx', 'agent-window__timeline', 'Action Timeline UI');
+contains('src/renderer/src/modules/agent/AgentWindow.tsx', 'handleSaveToFeishu', 'Agent overlay Feishu save action');
+contains('src/renderer/src/modules/agent/AgentWindow.tsx', '存飞书', 'Agent overlay Feishu button');
+contains('src/renderer/src/styles/components/agent-window.css', 'agent-window__action-btn--feishu', 'Agent overlay Feishu button styling');
 contains('src/main.ts', 'new Tray(icon)', 'tray/menu bar creation');
 contains('src/main.ts', 'Open Logs', 'Logs menu item');
 contains('src/main.ts', 'miniSettingsWindow.show()', 'Mini Settings menu item');
@@ -135,9 +171,12 @@ section('IPC string checks');
   'asr:send-audio',
   'asr:start',
   'asr:stop',
+  'asr:notice',
   'recorder:ready',
   'recorder:ping',
   'recorder:pong',
+  'mini:toggle-quick-ask',
+  'claw-desk:check-voice-trigger',
   'mini:test-recorder-window',
   'mini:test-ipc',
   'mini:test-asr-mock',
@@ -179,7 +218,7 @@ if (isCI) {
 
   if (fs.existsSync(appAsarPath)) {
     try {
-      const list = asarList(appAsarPath);
+      const list = await asarList(appAsarPath);
       [
         '/.vite/build/main.js',
         '/.vite/build/preload.js',
@@ -191,7 +230,7 @@ if (isCI) {
         add(`packaged:${entry}`, list.includes(entry), list.includes(entry) ? 'present in app.asar' : 'missing from app.asar');
       });
 
-      const extractedDir = extractAsarToTemp(appAsarPath);
+      const extractedDir = await extractAsarToTemp(appAsarPath);
       const mainBundle = readIfExists(path.join(extractedDir, '.vite/build/main.js'));
       const preloadBundle = readIfExists(path.join(extractedDir, '.vite/build/preload.js'));
       const recorderBundleNames = list

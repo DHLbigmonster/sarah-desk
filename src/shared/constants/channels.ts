@@ -17,6 +17,8 @@ export const IPC_CHANNELS = {
     LEVEL: 'asr:level',
     /** ASR status change (Main -> Renderer) */
     STATUS: 'asr:status',
+    /** ASR notice / non-error user feedback (Main -> Renderer) */
+    NOTICE: 'asr:notice',
     /** ASR error (Main -> Renderer) */
     ERROR: 'asr:error',
   },
@@ -105,6 +107,8 @@ export const IPC_CHANNELS = {
     SAVE_HOTKEY_CONFIG: 'claw-desk:save-hotkey-config',
     /** Check whether a toggle-window accelerator conflicts with system shortcuts */
     CHECK_TOGGLE_WINDOW: 'claw-desk:check-toggle-window',
+    /** Check whether a voice trigger key is usable before saving */
+    CHECK_VOICE_TRIGGER: 'claw-desk:check-voice-trigger',
     /** Toggle voice input for ClawDesk Chat: start recording or stop and return transcript */
     VOICE_INPUT_TOGGLE: 'claw-desk:voice-input-toggle',
     /** Stop voice input and return transcript (same as toggle when recording) */
@@ -147,6 +151,8 @@ export const IPC_CHANNELS = {
     TOGGLE_DICTATION: 'mini:toggle-dictation',
     /** Toggle Command mode from UI */
     TOGGLE_COMMAND: 'mini:toggle-command',
+    /** Toggle Quick Ask from UI */
+    TOGGLE_QUICK_ASK: 'mini:toggle-quick-ask',
     /** Quit Sarah */
     QUIT: 'mini:quit',
     /** Open the current electron-log output location */

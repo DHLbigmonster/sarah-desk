@@ -1,4 +1,12 @@
-export type LocalToolId = 'openclaw' | 'hermes' | 'obsidian' | 'lark-cli';
+export type LocalToolId =
+  | 'openclaw'
+  | 'openclaw-peekaboo'
+  | 'hermes'
+  | 'hermes-computer-use'
+  | 'codex'
+  | 'claude'
+  | 'obsidian'
+  | 'lark-cli';
 
 export type LocalToolCategory = 'agent' | 'knowledge' | 'productivity';
 
