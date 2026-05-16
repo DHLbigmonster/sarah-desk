@@ -5,6 +5,7 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import path from 'path';
+import { existsSync } from 'fs';
 import { cp, mkdir } from 'fs/promises';
 
 // Native modules that need special handling for packaging
@@ -18,6 +19,11 @@ const nativeModules = [
   'ws',
 ];
 
+const extraResources = ['./assets/tray-icon.png'];
+if (existsSync(path.resolve(__dirname, '.env'))) {
+  extraResources.push('./.env');
+}
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
@@ -27,9 +33,9 @@ const config: ForgeConfig = {
     executableName: 'Sarah',
     appBundleId: 'com.sarah.app',
     icon: './assets/icon',
-    // Bundle the tray icon and env config next to the packaged app.
+    // Bundle the tray icon and optional local env config next to the packaged app.
     // main.ts reads them via process.resourcesPath when app.isPackaged is true.
-    extraResource: ['./assets/tray-icon.png', './.env'],
+    extraResource: extraResources,
   },
   rebuildConfig: {
     // uiohook-napi and @xitanggg/node-insert-text both ship N-API prebuilds

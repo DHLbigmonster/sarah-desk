@@ -11,8 +11,8 @@ import { IPC_CHANNELS } from '../../shared/constants/channels';
 import { getIsAppQuitting } from '../app-lifecycle';
 
 const FLOATING_WINDOW_CONFIG = {
-  WIDTH: 150,
-  HEIGHT: 40,
+  WIDTH: 280,
+  HEIGHT: 48,
   BOTTOM_OFFSET: 90,
   AUTO_HIDE_DELAY: 2000,
 } as const;
@@ -248,6 +248,22 @@ export class FloatingWindowManager {
     this.show();
     this.window.webContents.send(IPC_CHANNELS.ASR.ERROR, error);
     // Auto-hide after showing error
+    this.scheduleAutoHide();
+  }
+
+  /**
+   * Send non-error user feedback to the floating window.
+   */
+  sendNotice(notice: string): void {
+    if (this.suppressed) {
+      return;
+    }
+    if (!this.window || this.window.isDestroyed()) {
+      return;
+    }
+    this.show();
+    this.window.webContents.send(IPC_CHANNELS.ASR.STATUS, 'done');
+    this.window.webContents.send(IPC_CHANNELS.ASR.NOTICE, notice);
     this.scheduleAutoHide();
   }
 

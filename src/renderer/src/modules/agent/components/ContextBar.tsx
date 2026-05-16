@@ -31,6 +31,11 @@ export function ContextBar({ context }: ContextBarProps): ReactNode {
           {truncateUrl(context.url)}
         </span>
       )}
+      {context.ocrText && (
+        <span className="context-bar__ocr" title={context.ocrText}>
+          OCR {context.ocrText.length} chars
+        </span>
+      )}
     </div>
   );
 }

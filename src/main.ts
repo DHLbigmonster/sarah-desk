@@ -2,7 +2,10 @@
 process.stdout.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE') throw err; });
 process.stderr.on('error', (err: NodeJS.ErrnoException) => { if (err.code !== 'EPIPE') throw err; });
 import { app, BrowserWindow, Tray, Menu, nativeImage, globalShortcut, ipcMain, shell, Notification } from 'electron';
+import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import dotenv from 'dotenv';
 import log from 'electron-log';
 
@@ -10,9 +13,13 @@ import log from 'electron-log';
 const envPath = app.isPackaged
   ? path.join(process.resourcesPath, '.env')
   : path.join(__dirname, '../.env');
-const result = dotenv.config({ path: envPath });
 log.info('[ENV] Loading from:', envPath);
-log.info('[ENV] Result:', result.error ? `ERROR: ${result.error}` : `OK, keys: ${Object.keys(result.parsed || {}).join(', ')}`);
+if (fs.existsSync(envPath)) {
+  const result = dotenv.config({ path: envPath });
+  log.info('[ENV] Result:', result.error ? `ERROR: ${result.error}` : `OK, keys: ${Object.keys(result.parsed || {}).join(', ')}`);
+} else {
+  log.info('[ENV] Result: skipped, optional .env not found');
+}
 log.info('[ENV] VOLCENGINE_APP_ID:', process.env.VOLCENGINE_APP_ID ? 'SET' : 'MISSING');
 import started from 'electron-squirrel-startup';
 import { setupAllIpcHandlers } from './main/ipc';
@@ -41,6 +48,7 @@ import { getIsAppQuitting, markAppQuitting } from './main/app-lifecycle';
 import type { MiniStatus } from './shared/types/mini';
 
 const logger = log.scope('main');
+const execFileAsync = promisify(execFile);
 
 if (started) {
   app.quit();
@@ -66,10 +74,36 @@ let recorderWindow: BrowserWindow | null = null;
 let recorderWindowReady = false;
 let recorderRendererReady = false;
 let recorderLastPongAt: number | null = null;
+let screenRecordingProbe: { checkedAt: number; status: MiniStatus['permissions']['screenRecording'] } | null = null;
 
 interface MiniTestResult {
   success: boolean;
   detail: string;
+}
+
+async function getScreenRecordingStatusForUi(): Promise<MiniStatus['permissions']['screenRecording']> {
+  const systemStatus = permissionsService.getScreenRecordingStatus();
+  if (process.platform !== 'darwin') {
+    return systemStatus;
+  }
+  if (screenRecordingProbe && Date.now() - screenRecordingProbe.checkedAt < 15_000) {
+    return screenRecordingProbe.status;
+  }
+
+  const probePath = path.join(app.getPath('temp'), `sarah-screen-probe-${process.pid}.png`);
+  try {
+    await execFileAsync('/usr/sbin/screencapture', ['-x', '-m', probePath], {
+      timeout: 3000,
+      maxBuffer: 1024 * 1024,
+    });
+    fs.rmSync(probePath, { force: true });
+    screenRecordingProbe = { checkedAt: Date.now(), status: 'granted' };
+    return 'granted';
+  } catch {
+    fs.rmSync(probePath, { force: true });
+    screenRecordingProbe = { checkedAt: Date.now(), status: systemStatus };
+    return systemStatus;
+  }
 }
 
 function syncRecorderWindowStatus(): void {
@@ -186,7 +220,7 @@ async function getMiniStatus(): Promise<MiniStatus> {
   const gatewayUrl = `http://${gateway.endpoint}`;
   const micStatus = permissionsService.getMicrophoneStatus();
   const accessibilityGranted = permissionsService.getAccessibilityStatus();
-  const screenRecordingStatus = permissionsService.getScreenRecordingStatus();
+  const screenRecordingStatus = await getScreenRecordingStatusForUi();
   const asrConfigured = isASRConfigured();
   const runtimeSelection = await clawDeskSettingsService.getAgentRuntimeSelection();
   const effectiveRuntime = runtimeSelection.runtimes.find((runtime) => runtime.id === runtimeSelection.effective);
@@ -201,17 +235,17 @@ async function getMiniStatus(): Promise<MiniStatus> {
     asrProvider: {
       name: asrConfigured ? 'Volcengine ASR' : 'Apple Speech (local)',
       configured: asrConfigured,
-      detail: micStatus === 'granted' ? 'Microphone granted' : `Microphone ${micStatus}`,
+      detail: micStatus === 'granted' ? '麦克风已授权' : `麦克风 ${micStatus}`,
     },
     refinementProvider: {
-      name: 'Dictation refinement',
+      name: '听写润色',
       configured: lightweightRefinementClient.isConfigured(),
-      detail: lightweightRefinementClient.isConfigured() ? 'Model configured' : 'Using local fallback',
+      detail: lightweightRefinementClient.isConfigured() ? '模型已配置' : '使用本地降级',
     },
     agent: {
       available: Boolean(effectiveRuntime?.ready),
       binaryPath: effectiveRuntime?.path ?? null,
-      detail: effectiveRuntime?.detail ?? 'No agent runtime was detected. Install or configure OpenClaw or Hermes.',
+      detail: effectiveRuntime?.detail ?? '未检测到代理运行时。请安装或配置 OpenClaw、Hermes、Codex 或 Claude。',
       selectedRuntime: runtimeSelection.selected,
       effectiveRuntime: runtimeSelection.effective,
       runtimes: runtimeSelection.runtimes,
@@ -342,7 +376,11 @@ async function testTextInsertMock(): Promise<MiniTestResult> {
   const result = textInputService.insert('Sarah test');
   return {
     success: result.success,
-    detail: result.success ? 'inserted fixed text: Sarah test' : (result.error ?? 'insert failed'),
+    detail: result.success
+      ? result.destination === 'clipboard'
+        ? 'copied fixed text to clipboard: Sarah test'
+        : 'inserted fixed text: Sarah test'
+      : (result.error ?? 'insert failed'),
   };
 }
 
@@ -373,6 +411,10 @@ function setupMiniIpcHandlers(): void {
   });
   ipcMain.handle(IPC_CHANNELS.MINI.TOGGLE_COMMAND, () => {
     void voiceModeManager.testCommandModeToggle();
+    return { success: true };
+  });
+  ipcMain.handle(IPC_CHANNELS.MINI.TOGGLE_QUICK_ASK, () => {
+    void voiceModeManager.testQuickAskToggle();
     return { success: true };
   });
   ipcMain.handle(IPC_CHANNELS.MINI.QUIT, () => {
@@ -628,7 +670,7 @@ app.on('ready', async () => {
   if (!micGranted) missing.push('麦克风');
   if (!hasAccessibility) missing.push('辅助功能');
   if (!hasAccessibility) missing.push('输入监控');
-  const screenRecGranted = permissionsService.getScreenRecordingStatus() === 'granted';
+  const screenRecGranted = await getScreenRecordingStatusForUi() === 'granted';
   if (!screenRecGranted) missing.push('屏幕录制');
   logger.info('Permission summary at startup', {
     micGranted,

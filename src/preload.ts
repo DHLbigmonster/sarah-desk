@@ -87,6 +87,14 @@ const asrApi: ASRApi = {
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ASR.STATUS, handler);
   },
 
+  onNotice: (callback: (notice: string) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, notice: string): void => {
+      callback(notice);
+    };
+    ipcRenderer.on(IPC_CHANNELS.ASR.NOTICE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ASR.NOTICE, handler);
+  },
+
   onError: (callback: (error: string) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, error: string): void => {
       callback(error);
@@ -326,6 +334,9 @@ const clawDeskApi: ClawDeskApi = {
   checkToggleWindow: (accelerator: string): Promise<HotkeyCheckResult> =>
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.CHECK_TOGGLE_WINDOW, accelerator),
 
+  checkVoiceTrigger: (config: HotkeyConfig): Promise<HotkeyCheckResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.CHECK_VOICE_TRIGGER, config),
+
   voiceInputToggle: (): Promise<{ recording: boolean; error?: string } | { text?: string; error?: string }> =>
     ipcRenderer.invoke(IPC_CHANNELS.CLAW_DESK.VOICE_INPUT_TOGGLE),
 
@@ -385,6 +396,8 @@ const miniApi: MiniApi = {
     ipcRenderer.invoke(IPC_CHANNELS.MINI.TOGGLE_DICTATION),
   toggleCommand: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.TOGGLE_COMMAND),
+  toggleQuickAsk: (): Promise<{ success: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.MINI.TOGGLE_QUICK_ASK),
   quit: (): Promise<{ success: boolean }> =>
     ipcRenderer.invoke(IPC_CHANNELS.MINI.QUIT),
   showLogs: (): Promise<{ success: boolean; error?: string }> =>

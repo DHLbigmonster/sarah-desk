@@ -25,6 +25,8 @@ const OPENCLAW_CONFIG_PATH = path.join(os.homedir(), '.openclaw', 'openclaw.json
 const HERMES_HOME = path.join(os.homedir(), '.hermes');
 const HERMES_DESKTOP_SUPPORT = path.join(os.homedir(), 'Library', 'Application Support', 'HermesDesktop');
 const HERMES_LAUNCH_AGENT = path.join(os.homedir(), 'Library', 'LaunchAgents', 'ai.hermes.gateway.plist');
+const CODEX_HOME = path.join(os.homedir(), '.codex');
+const CLAUDE_HOME = path.join(os.homedir(), '.claude');
 const EXTRA_BIN_DIRS = [
   '/opt/homebrew/bin',
   '/usr/local/bin',
@@ -268,6 +270,52 @@ async function detectOpenClaw(): Promise<LocalToolStatus> {
   };
 }
 
+async function detectOpenClawPeekaboo(): Promise<LocalToolStatus> {
+  const checkedAt = checkedNow();
+  const binary = await resolveBinary(['openclaw']);
+  const skills = binary ? await run(binary.path, ['skills', 'list'], 5000) : null;
+  const skillsText = `${skills?.stdout ?? ''}\n${skills?.stderr ?? ''}`.trim();
+  const peekabooLine = skillsText
+    .split('\n')
+    .find((line) => /(^|\s)peekaboo(\s|$)/i.test(line)) ?? '';
+  const hasPeekaboo = /(^|\s)peekaboo(\s|$)/i.test(skillsText);
+  const needsSetup = hasPeekaboo && /needs\s+setup/i.test(peekabooLine);
+  const ready = hasPeekaboo && !needsSetup;
+
+  return {
+    id: 'openclaw-peekaboo',
+    name: 'OpenClaw Peekaboo',
+    category: 'agent',
+    description: 'OpenClaw screen capture and macOS UI automation skill.',
+    installed: Boolean(binary) && hasPeekaboo,
+    path: binary?.path ?? null,
+    version: null,
+    authState: 'unknown',
+    health: ready ? 'ready' : binary ? 'needs_setup' : 'missing',
+    detail: ready
+      ? 'OpenClaw peekaboo skill is available for screen capture and macOS UI automation.'
+      : binary
+        ? hasPeekaboo
+          ? 'OpenClaw peekaboo skill is present but still needs setup.'
+          : 'OpenClaw is installed, but the peekaboo skill was not found.'
+        : 'OpenClaw CLI is required before peekaboo can be configured.',
+    setupHint: ready ? null : 'Run `openclaw skills list` and follow the peekaboo setup instructions.',
+    docsUrl: null,
+    capabilities: [
+      safeCapability('status', 'Check status', 'Check whether OpenClaw peekaboo is present and ready.', 'openclaw skills list', Boolean(binary)),
+      externalCapability('setup', 'Show setup', 'Open the OpenClaw peekaboo setup details in Terminal.', 'openclaw skills info peekaboo', Boolean(binary) && hasPeekaboo && !ready),
+      externalCapability('desktop.operate', 'Desktop control', 'Let OpenClaw use peekaboo for screen capture and macOS UI automation.', 'openclaw skills list', ready),
+    ],
+    signals: {
+      openclawFound: Boolean(binary),
+      peekabooFound: hasPeekaboo,
+      needsSetup,
+      statusText: skillsText.slice(0, 240),
+    },
+    checkedAt,
+  };
+}
+
 function parseHermesAuthenticated(output: string): boolean {
   const lower = output.toLowerCase();
   const providerConfigured = /provider:\s+(?!\(?not\s+set\)?)([^\n]+)/i.test(output);
@@ -342,6 +390,150 @@ async function detectHermes(): Promise<LocalToolStatus> {
       hermesHomeFound,
       launchAgentFound,
     },
+    checkedAt,
+  };
+}
+
+async function detectHermesComputerUse(): Promise<LocalToolStatus> {
+  const checkedAt = checkedNow();
+  const hermes = await resolveBinary(['hermes']);
+  const cua = await resolveBinary(['cua-driver']);
+  const status = hermes ? await run(hermes.path, ['computer-use', 'status'], 3500) : null;
+  const statusText = `${status?.stdout ?? ''}\n${status?.stderr ?? ''}`.trim();
+  const ready = Boolean(cua) || /cua-driver:\s*(installed|ready|ok)/i.test(statusText);
+  const installed = Boolean(hermes);
+
+  return {
+    id: 'hermes-computer-use',
+    name: 'Hermes Computer Use',
+    category: 'agent',
+    description: 'Hermes macOS background Computer Use backend powered by cua-driver.',
+    installed,
+    path: cua?.path ?? hermes?.path ?? null,
+    version: null,
+    authState: ready ? 'not_required' : 'unknown',
+    health: ready ? 'ready' : installed ? 'needs_setup' : 'missing',
+    detail: ready
+      ? 'cua-driver is installed; Hermes can use the `computer_use` toolset for macOS app automation.'
+      : installed
+        ? 'Hermes is installed, but cua-driver is not installed yet.'
+        : 'Hermes CLI is required before Computer Use can be configured.',
+    setupHint: ready ? null : 'Run `hermes computer-use install`, then grant Accessibility and Screen Recording when macOS asks.',
+    docsUrl: 'https://github.com/trycua/cua',
+    capabilities: [
+      safeCapability('status', 'Check status', 'Check whether cua-driver is installed and available.', hermes ? `${hermes.path} computer-use status` : 'hermes computer-use status', installed),
+      externalCapability('setup', 'Install backend', 'Open the Hermes Computer Use installer in Terminal. This downloads and installs cua-driver.', hermes ? `${hermes.path} computer-use install` : 'hermes computer-use install', installed && !ready),
+      externalCapability('desktop.operate', 'Desktop control', 'Let Hermes drive macOS apps in the background through the computer_use toolset.', 'hermes --toolsets computer_use', ready),
+    ],
+    signals: {
+      hermesFound: Boolean(hermes),
+      cuaDriverFound: Boolean(cua),
+      statusText: statusText.slice(0, 240),
+    },
+    checkedAt,
+  };
+}
+
+async function detectCodex(): Promise<LocalToolStatus> {
+  const checkedAt = checkedNow();
+  const binary = await resolveBinary(['codex']);
+  const configFound = fs.existsSync(CODEX_HOME);
+
+  if (!binary) {
+    return {
+      id: 'codex',
+      name: 'Codex',
+      category: 'agent',
+      description: 'OpenAI Codex CLI runtime available for Command and Quick Ask.',
+      installed: configFound,
+      path: null,
+      version: null,
+      authState: 'unknown',
+      health: configFound ? 'needs_setup' : 'missing',
+      detail: configFound ? 'Codex config exists, but the CLI was not found on PATH.' : 'Codex CLI is not installed or not on PATH.',
+      setupHint: 'Install with `npm i -g @openai/codex` or `brew install --cask codex`, then run `codex` to sign in.',
+      docsUrl: 'https://developers.openai.com/codex/cli',
+      capabilities: [
+        safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through Codex exec.', null, false),
+      ],
+      signals: { configFound },
+      checkedAt,
+    };
+  }
+
+  const version = await resolveVersion(binary.path, [['--version'], ['version']]);
+  const ready = configFound;
+  return {
+    id: 'codex',
+    name: 'Codex',
+    category: 'agent',
+    description: 'OpenAI Codex CLI runtime available for Command and Quick Ask.',
+    installed: true,
+    path: binary.path,
+    version,
+    authState: ready ? 'authenticated' : 'unknown',
+    health: ready ? 'ready' : 'needs_setup',
+    detail: ready
+      ? 'Codex CLI is installed and local config was detected.'
+      : 'Codex CLI is installed, but sign-in/config was not confirmed.',
+    setupHint: ready ? null : 'Run `codex` once and sign in before using it from Sarah.',
+    docsUrl: 'https://developers.openai.com/codex/cli',
+    capabilities: [
+      safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through Codex exec.', `${binary.path} exec`, true),
+    ],
+    signals: { command: binary.command, configFound },
+    checkedAt,
+  };
+}
+
+async function detectClaude(): Promise<LocalToolStatus> {
+  const checkedAt = checkedNow();
+  const binary = await resolveBinary(['claude']);
+  const configFound = fs.existsSync(CLAUDE_HOME);
+
+  if (!binary) {
+    return {
+      id: 'claude',
+      name: 'Claude Code',
+      category: 'agent',
+      description: 'Claude Code CLI runtime available for Command and Quick Ask.',
+      installed: configFound,
+      path: null,
+      version: null,
+      authState: 'unknown',
+      health: configFound ? 'needs_setup' : 'missing',
+      detail: configFound ? 'Claude config exists, but the CLI was not found on PATH.' : 'Claude Code CLI is not installed or not on PATH.',
+      setupHint: 'Install Claude Code, then run `claude` to sign in.',
+      docsUrl: 'https://docs.claude.com/en/docs/claude-code/headless',
+      capabilities: [
+        safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through Claude Code print mode.', null, false),
+      ],
+      signals: { configFound },
+      checkedAt,
+    };
+  }
+
+  const version = await resolveVersion(binary.path, [['--version'], ['version']]);
+  const ready = configFound;
+  return {
+    id: 'claude',
+    name: 'Claude Code',
+    category: 'agent',
+    description: 'Claude Code CLI runtime available for Command and Quick Ask.',
+    installed: true,
+    path: binary.path,
+    version,
+    authState: ready ? 'authenticated' : 'unknown',
+    health: ready ? 'ready' : 'needs_setup',
+    detail: ready
+      ? 'Claude Code CLI is installed and local config was detected.'
+      : 'Claude Code CLI is installed, but sign-in/config was not confirmed.',
+    setupHint: ready ? null : 'Run `claude` once and sign in before using it from Sarah.',
+    docsUrl: 'https://docs.claude.com/en/docs/claude-code/headless',
+    capabilities: [
+      safeCapability('agent.ask', 'Ask agent', 'Run Sarah instructions through Claude Code print mode.', `${binary.path} -p`, true),
+    ],
+    signals: { command: binary.command, configFound },
     checkedAt,
   };
 }
@@ -448,6 +640,7 @@ async function detectLarkCli(): Promise<LocalToolStatus> {
     capabilities: [
       safeCapability('docs.read', 'Read docs', 'Read Feishu/Lark documents after authentication.', `${binary.path} docs`, ready),
       writeCapability('docs.write', 'Write docs', 'Create or update Feishu/Lark documents with explicit approval.', `${binary.path} docs`, ready),
+      writeCapability('visible-context.create-doc', 'Save screen', 'Create a Feishu/Lark document from the captured app, URL, OCR text, and Sarah answer.', `${binary.path} docs +create`, ready),
       safeCapability('drive.read', 'Find files', 'Search and inspect Feishu/Lark Drive files and folders.', `${binary.path} drive`, ready),
       writeCapability('drive.write', 'Write files', 'Create folders, upload files, or move Feishu/Lark Drive content with explicit approval.', `${binary.path} drive`, ready),
       externalCapability('im.send', 'Send message', 'Send Feishu/Lark messages only after explicit approval.', `${binary.path} im`, ready),
@@ -484,13 +677,17 @@ export class LocalToolsService {
 
     const results = await Promise.allSettled([
       detectOpenClaw(),
+      detectOpenClawPeekaboo(),
       detectHermes(),
+      detectHermesComputerUse(),
+      detectCodex(),
+      detectClaude(),
       detectObsidian(),
       detectLarkCli(),
     ]);
     const tools = results.map((result, index) => {
       if (result.status === 'fulfilled') return result.value;
-      const ids = ['openclaw', 'hermes', 'obsidian', 'lark-cli'] as const;
+      const ids = ['openclaw', 'openclaw-peekaboo', 'hermes', 'hermes-computer-use', 'codex', 'claude', 'obsidian', 'lark-cli'] as const;
       logger.warn('Local tool detection failed', {
         toolId: ids[index],
         error: result.reason instanceof Error ? result.reason.message : String(result.reason),

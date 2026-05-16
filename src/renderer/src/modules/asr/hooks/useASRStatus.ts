@@ -1,5 +1,5 @@
 /**
- * Hook for subscribing to ASR status, results, and errors.
+ * Hook for subscribing to ASR status, results, notices, and errors.
  * Used by the floating window to display real-time ASR state.
  */
 
@@ -16,7 +16,9 @@ export interface UseASRStatusReturn {
   result: ASRResult | null;
   /** Error message if any */
   error: string | null;
-  /** Clear the current result and error */
+  /** Notice message if any */
+  notice: string | null;
+  /** Clear the current result, notice, and error */
   clear: () => void;
 }
 
@@ -42,10 +44,12 @@ export function useASRStatus(): UseASRStatusReturn {
   const [status, setStatus] = useState<ASRStatus>('idle');
   const [result, setResult] = useState<ASRResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Clear state
   const clear = useCallback(() => {
     setResult(null);
+    setNotice(null);
     setError(null);
   }, []);
 
@@ -60,6 +64,7 @@ export function useASRStatus(): UseASRStatusReturn {
       // Clear result when starting a new session
       if (newStatus === 'connecting') {
         setResult(null);
+        setNotice(null);
       }
     });
 
@@ -69,13 +74,21 @@ export function useASRStatus(): UseASRStatusReturn {
 
     const unsubscribeError = window.api.asr.onError((errorMessage) => {
       setError(errorMessage);
+      setNotice(null);
       setStatus('error');
+    });
+
+    const unsubscribeNotice = window.api.asr.onNotice((noticeMessage) => {
+      setNotice(noticeMessage);
+      setError(null);
+      setStatus('done');
     });
 
     // Cleanup subscriptions
     return () => {
       unsubscribeStatus();
       unsubscribeResult();
+      unsubscribeNotice();
       unsubscribeError();
     };
   }, []);
@@ -84,6 +97,7 @@ export function useASRStatus(): UseASRStatusReturn {
     status,
     result,
     error,
+    notice,
     clear,
   };
 }

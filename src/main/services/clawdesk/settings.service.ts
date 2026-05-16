@@ -49,6 +49,9 @@ const HERMES_DESKTOP_APP_CANDIDATES = [
   '/Applications/HermesDesktop.app',
   path.join(os.homedir(), 'Applications', 'HermesDesktop.app'),
 ];
+const CODEX_HOME = path.join(os.homedir(), '.codex');
+const CLAUDE_HOME = path.join(os.homedir(), '.claude');
+const AGENT_RUNTIME_IDS: AgentRuntimeId[] = ['openclaw', 'hermes', 'codex', 'claude'];
 const SKILL_SOURCES = [
   { source: 'codex' as const, dir: path.join(os.homedir(), '.codex', 'skills') },
   { source: 'agents' as const, dir: path.join(os.homedir(), '.agents', 'skills') },
@@ -273,6 +276,66 @@ const CLI_CATALOG: ClawDeskCliToolDefinition[] = [
     ],
   },
   {
+    id: 'cua-driver',
+    name: 'cua-driver',
+    description: 'Hermes Computer Use 的 macOS 后台桌面控制后端。',
+    category: 'agent',
+    command: 'cua-driver',
+    versionArgs: [['--version'], ['version']],
+    recommended: true,
+    source: 'Hermes Computer Use integration',
+    installCommand: 'hermes computer-use install',
+    detailIntro: 'cua-driver 是 Hermes Computer Use 的底层后台 macOS UI 自动化驱动。Sarah 不会默认安装它，但会检测并引导用户启用。',
+    docsUrl: 'https://github.com/trycua/cua',
+    repoUrl: 'https://github.com/trycua/cua',
+    authRequired: false,
+    postInstallNotes: [
+      '运行 hermes computer-use install 安装或修复。',
+      '安装后需要 macOS Accessibility 和 Screen Recording 权限。',
+      '验证安装：hermes computer-use status',
+    ],
+  },
+  {
+    id: 'codex',
+    name: 'Codex CLI',
+    description: 'OpenAI 的本地 coding agent，可作为 Sarah Command / Quick Ask 的可选后端。',
+    category: 'agent',
+    command: 'codex',
+    versionArgs: [['--version'], ['version']],
+    recommended: true,
+    source: 'OpenAI Codex CLI integration',
+    installCommand: 'npm i -g @openai/codex',
+    detailIntro: 'Codex CLI 是 OpenAI 开源的本地终端 agent。Sarah 将它作为可选 runtime 调用；它适合代码、文件、终端和工具型任务，不应被误认为 Sarah 内置的桌面 Computer Use SDK。',
+    docsUrl: 'https://developers.openai.com/codex/cli',
+    repoUrl: 'https://github.com/openai/codex',
+    authRequired: true,
+    postInstallNotes: [
+      '安装后运行 codex 并登录 ChatGPT 或配置 API key。',
+      '验证安装：which codex && codex --version',
+      'Sarah 使用 codex exec 进行非交互调用。',
+    ],
+  },
+  {
+    id: 'claude',
+    name: 'Claude Code CLI',
+    description: 'Anthropic Claude Code 的本地命令行 agent，可作为 Sarah 的可选后端。',
+    category: 'agent',
+    command: 'claude',
+    versionArgs: [['--version'], ['version']],
+    recommended: true,
+    source: 'Claude Code CLI integration',
+    installCommand: 'npm i -g @anthropic-ai/claude-code',
+    detailIntro: 'Claude Code CLI 支持 headless print 模式，Sarah 将它作为可选 runtime 调用。适合代码、shell 和本地项目任务。',
+    docsUrl: 'https://docs.claude.com/en/docs/claude-code/headless',
+    repoUrl: null,
+    authRequired: true,
+    postInstallNotes: [
+      '安装后运行 claude 并完成登录。',
+      '验证安装：which claude && claude --version',
+      'Sarah 使用 claude -p 进行非交互调用。',
+    ],
+  },
+  {
     id: 'lark-cli',
     name: 'Lark CLI',
     description: '飞书/Lark 工作流命令行工具，适合多种办公自动化场景。',
@@ -492,6 +555,43 @@ function parseHermesAuthenticated(output: string): boolean {
   return (providerConfigured || modelConfigured) && hasUsableKey && !/no api keys configured/.test(lower);
 }
 
+async function getHermesComputerUseStatus(hermesBinaryPath: string | null): Promise<{ installed: boolean; ready: boolean; detail: string }> {
+  if (!hermesBinaryPath) {
+    return { installed: false, ready: false, detail: 'Hermes CLI not found.' };
+  }
+  const cuaBinary = await resolveBinary('cua-driver');
+  if (cuaBinary) {
+    return { installed: true, ready: true, detail: `cua-driver found at ${cuaBinary}.` };
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync(hermesBinaryPath, ['computer-use', 'status'], {
+      timeout: 4000,
+      env: {
+        ...process.env,
+        PATH: [...new Set([...(process.env.PATH ?? '').split(':').filter(Boolean), ...EXTRA_BIN_DIRS])].join(':'),
+      },
+    });
+    const output = `${stdout}\n${stderr}`.trim();
+    const ready = /cua-driver:\s*(installed|ready|ok)/i.test(output);
+    return {
+      installed: true,
+      ready,
+      detail: output.slice(0, 240),
+    };
+  } catch (error) {
+    return {
+      installed: true,
+      ready: false,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function parseCodexAuthenticated(output: string): boolean {
+  const lower = output.toLowerCase();
+  return !/not authenticated|not logged|login required|sign in|api key|unauthorized|401|403/.test(lower);
+}
+
 async function getOpenClawRuntimeStatus(): Promise<AgentRuntimeStatus> {
   const binaryPath = await resolveBinary('openclaw');
   const gateway = readOpenClawGatewayConfig();
@@ -588,6 +688,16 @@ async function getHermesRuntimeStatus(): Promise<AgentRuntimeStatus> {
     launchAgentFound ? 'gateway service installed' : null,
     hermesHomeFound ? '~/.hermes found' : null,
   ].filter(Boolean).join(', ');
+  const computerUse = await getHermesComputerUseStatus(binaryPath);
+  const computerUseSignal = computerUse.ready
+    ? 'Computer Use ready'
+    : 'Computer Use needs cua-driver install';
+  const detailSignals = [signals, computerUseSignal].filter(Boolean).join(', ');
+  const setupHint = !authenticated
+    ? 'Run `hermes setup`, `hermes model`, or `hermes status` to finish configuration.'
+    : computerUse.ready
+      ? null
+      : 'Run `hermes computer-use install` to enable Hermes Computer Use.';
 
   return {
     id: 'hermes',
@@ -598,9 +708,91 @@ async function getHermesRuntimeStatus(): Promise<AgentRuntimeStatus> {
     authenticated,
     ready: authenticated,
     detail: authenticated
-      ? `Hermes is installed and configured${signals ? ` (${signals})` : ''}.`
-      : `Hermes is installed${signals ? ` (${signals})` : ''}, but model/auth setup still needs confirmation.`,
-    setupHint: authenticated ? null : 'Run `hermes setup`, `hermes model`, or `hermes status` to finish configuration.',
+      ? `Hermes is installed and configured${detailSignals ? ` (${detailSignals})` : ''}.`
+      : `Hermes is installed${detailSignals ? ` (${detailSignals})` : ''}, but model/auth setup still needs confirmation.`,
+    setupHint,
+  };
+}
+
+async function getCodexRuntimeStatus(): Promise<AgentRuntimeStatus> {
+  const binaryPath = await resolveBinary('codex');
+  const configFound = fs.existsSync(CODEX_HOME);
+
+  if (!binaryPath) {
+    return {
+      id: 'codex',
+      name: 'Codex',
+      installed: configFound,
+      path: null,
+      version: null,
+      authenticated: false,
+      ready: false,
+      detail: configFound
+        ? 'Codex config directory exists, but the `codex` CLI was not found on PATH.'
+        : 'Codex CLI was not detected.',
+      setupHint: 'Install with `npm i -g @openai/codex` or `brew install --cask codex`, then run `codex` to sign in.',
+    };
+  }
+
+  const version = await resolveVersion(binaryPath, [['--version'], ['version']]);
+  let authenticated = configFound;
+  try {
+    const { stdout, stderr } = await execFileAsync(binaryPath, ['exec', '--help'], { timeout: 5000 });
+    authenticated = configFound && parseCodexAuthenticated(`${stdout}\n${stderr}`);
+  } catch {
+    // Keep config-directory signal; auth will be proven on first run.
+  }
+
+  return {
+    id: 'codex',
+    name: 'Codex',
+    installed: true,
+    path: binaryPath,
+    version,
+    authenticated,
+    ready: authenticated,
+    detail: authenticated
+      ? 'Codex CLI is installed; Sarah can call it through `codex exec`.'
+      : 'Codex CLI is installed, but sign-in or API key setup was not confirmed.',
+    setupHint: authenticated ? null : 'Run `codex` once and sign in, or configure an OpenAI API key.',
+  };
+}
+
+async function getClaudeRuntimeStatus(): Promise<AgentRuntimeStatus> {
+  const binaryPath = await resolveBinary('claude');
+  const configFound = fs.existsSync(CLAUDE_HOME);
+
+  if (!binaryPath) {
+    return {
+      id: 'claude',
+      name: 'Claude Code',
+      installed: configFound,
+      path: null,
+      version: null,
+      authenticated: false,
+      ready: false,
+      detail: configFound
+        ? 'Claude config directory exists, but the `claude` CLI was not found on PATH.'
+        : 'Claude Code CLI was not detected.',
+      setupHint: 'Install Claude Code, then run `claude` once to sign in.',
+    };
+  }
+
+  const version = await resolveVersion(binaryPath, [['--version'], ['version']]);
+  const authenticated = configFound;
+
+  return {
+    id: 'claude',
+    name: 'Claude Code',
+    installed: true,
+    path: binaryPath,
+    version,
+    authenticated,
+    ready: authenticated,
+    detail: authenticated
+      ? 'Claude Code CLI is installed and local config was detected.'
+      : 'Claude Code CLI is installed, but headless sign-in was not confirmed.',
+    setupHint: authenticated ? null : 'Run `claude` once and finish login/setup.',
   };
 }
 
@@ -636,6 +828,18 @@ async function openHermesSetup(binaryPath: string | null): Promise<string> {
   return 'Opened Hermes setup in Terminal.';
 }
 
+async function openCodexSetup(binaryPath: string | null): Promise<string> {
+  const command = binaryPath ? JSON.stringify(binaryPath) : 'codex';
+  await openTerminalCommand(command);
+  return 'Opened Codex CLI in Terminal so the user can sign in.';
+}
+
+async function openClaudeSetup(binaryPath: string | null): Promise<string> {
+  const command = binaryPath ? JSON.stringify(binaryPath) : 'claude';
+  await openTerminalCommand(command);
+  return 'Opened Claude Code in Terminal so the user can sign in.';
+}
+
 async function openOpenClawSetup(binaryPath: string | null): Promise<string> {
   const command = binaryPath
     ? `${JSON.stringify(binaryPath)} onboard; ${JSON.stringify(binaryPath)} gateway start`
@@ -664,10 +868,9 @@ export class ClawDeskSettingsService {
       return {
         themeMode: parsed.themeMode ?? 'system',
         hotkeyConfig,
-        selectedAgentRuntime:
-          parsed.selectedAgentRuntime === 'openclaw' || parsed.selectedAgentRuntime === 'hermes'
-            ? parsed.selectedAgentRuntime
-            : undefined,
+        selectedAgentRuntime: AGENT_RUNTIME_IDS.includes(parsed.selectedAgentRuntime as AgentRuntimeId)
+          ? parsed.selectedAgentRuntime as AgentRuntimeId
+          : undefined,
       };
     } catch {
       return { themeMode: 'system' };
@@ -727,6 +930,8 @@ export class ClawDeskSettingsService {
     const runtimes = await Promise.all([
       getOpenClawRuntimeStatus(),
       getHermesRuntimeStatus(),
+      getCodexRuntimeStatus(),
+      getClaudeRuntimeStatus(),
     ]);
     return {
       selected: settings.selectedAgentRuntime ?? null,
@@ -753,6 +958,10 @@ export class ClawDeskSettingsService {
     try {
       if (runtimeId === 'hermes') {
         detail = await openHermesSetup(runtime?.path ?? null);
+      } else if (runtimeId === 'codex') {
+        detail = await openCodexSetup(runtime?.path ?? null);
+      } else if (runtimeId === 'claude') {
+        detail = await openClaudeSetup(runtime?.path ?? null);
       } else {
         if (runtime?.path) {
           await execFileAsync(runtime.path, ['gateway', 'start'], {

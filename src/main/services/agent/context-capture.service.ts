@@ -14,6 +14,8 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import path from 'node:path';
+import fs from 'node:fs';
+import { app } from 'electron';
 import log from 'electron-log';
 import { memoryService } from './memory.service';
 import { permissionsService } from '../permissions/permissions.service';
@@ -21,6 +23,9 @@ import type { AgentContext } from '../../../shared/types/agent';
 
 const execFileAsync = promisify(execFile);
 const logger = log.scope('context-capture-service');
+const OCR_COMPILE_TIMEOUT_MS = 15_000;
+const OCR_TIMEOUT_MS = 12_000;
+const OCR_BINARY_PATH = path.join(process.env.HOME ?? process.cwd(), '.sarah', 'ocr-image');
 
 /** AppleScript: returns "AppName|WindowTitle" for the frontmost app */
 const GET_APP_SCRIPT = `
@@ -76,6 +81,45 @@ async function runAppleScript(script: string): Promise<string> {
   return stdout.trim();
 }
 
+function resolveOcrScriptPath(): string | null {
+  const candidates = [
+    path.join(app.getAppPath(), 'scripts', 'ocr-image.swift'),
+    path.join(process.cwd(), 'scripts', 'ocr-image.swift'),
+  ];
+  return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
+}
+
+async function resolveOcrBinary(scriptPath: string): Promise<string> {
+  try {
+    memoryService.ensureDirectories();
+    const scriptStat = fs.statSync(scriptPath);
+    const binaryStat = fs.existsSync(OCR_BINARY_PATH) ? fs.statSync(OCR_BINARY_PATH) : null;
+    if (binaryStat && binaryStat.mtimeMs >= scriptStat.mtimeMs && binaryStat.size > 0) {
+      return OCR_BINARY_PATH;
+    }
+    await execFileAsync('/usr/bin/swiftc', ['-O', scriptPath, '-o', OCR_BINARY_PATH], {
+      timeout: OCR_COMPILE_TIMEOUT_MS,
+      maxBuffer: 1024 * 1024,
+    });
+    return OCR_BINARY_PATH;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('OCR binary compile failed; falling back to swift interpreter', { error: message });
+    return '/usr/bin/swift';
+  }
+}
+
+function trimOcrText(text: string): string | undefined {
+  const normalized = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+  if (!normalized) return undefined;
+  return normalized.length > 6000 ? `${normalized.slice(0, 6000)}\n…` : normalized;
+}
+
 export class ContextCaptureService {
   /**
    * Capture the frontmost app name and window title.
@@ -120,16 +164,16 @@ export class ContextCaptureService {
    * Take a screenshot of the primary display using `screencapture -x`
    * (silent capture, no shutter sound). Returns the saved PNG path.
    *
-   * Skips silently when Screen Recording permission is not granted,
-   * to avoid triggering the system permission prompt every time the
-   * user invokes Command mode.
+   * The Electron permission API can report "not-determined" even when the
+   * `screencapture` CLI is already allowed. Attempt capture unless macOS
+   * reports a hard denial; the command itself is the source of truth.
    */
   async captureScreenshot(): Promise<string | undefined> {
     if (process.platform !== 'darwin') {
       return undefined;
     }
     const screenStatus = permissionsService.getScreenRecordingStatus();
-    if (screenStatus !== 'granted') {
+    if (screenStatus === 'denied' || screenStatus === 'restricted') {
       logger.info('Skipping screenshot — Screen Recording permission not granted', { status: screenStatus });
       return undefined;
     }
@@ -149,6 +193,40 @@ export class ContextCaptureService {
   }
 
   /**
+   * Extract visible text from the screenshot using macOS Vision.
+   * This makes non-browser apps such as Telegram, WeChat, Preview, and PDF
+   * readers usable without pretending Sarah can access their private DOM/data.
+   */
+  async captureScreenshotOcr(screenshotPath: string | undefined): Promise<string | undefined> {
+    if (process.platform !== 'darwin' || !screenshotPath) {
+      return undefined;
+    }
+    if (process.env.SARAH_SCREEN_OCR === '0' || process.env.SARAH_SCREEN_OCR === 'false') {
+      return undefined;
+    }
+
+    const scriptPath = resolveOcrScriptPath();
+    if (!scriptPath) {
+      logger.warn('OCR script not found');
+      return undefined;
+    }
+
+    try {
+      const ocrBinary = await resolveOcrBinary(scriptPath);
+      const args = ocrBinary === '/usr/bin/swift' ? [scriptPath, screenshotPath] : [screenshotPath];
+      const { stdout } = await execFileAsync(ocrBinary, args, {
+        timeout: OCR_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      });
+      return trimOcrText(stdout);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('Screenshot OCR failed', { error: message });
+      return undefined;
+    }
+  }
+
+  /**
    * Capture the full context (app + URL + screenshot) in a single call.
    * App context and screenshot are captured in parallel.
    */
@@ -159,13 +237,17 @@ export class ContextCaptureService {
     ]);
 
     const { appName, windowTitle } = appResult;
-    const url = await this.captureUrl(appName);
+    const [url, ocrText] = await Promise.all([
+      this.captureUrl(appName),
+      this.captureScreenshotOcr(screenshotPath),
+    ]);
 
     const context: AgentContext = {
       appName,
       windowTitle,
       ...(url ? { url } : {}),
       ...(screenshotPath ? { screenshotPath } : {}),
+      ...(ocrText ? { ocrText } : {}),
     };
 
     logger.info('Context captured', {
@@ -173,6 +255,7 @@ export class ContextCaptureService {
       windowTitle,
       hasUrl: !!url,
       hasScreenshot: !!screenshotPath,
+      ocrChars: ocrText?.length ?? 0,
     });
     return context;
   }

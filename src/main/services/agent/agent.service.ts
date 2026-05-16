@@ -126,6 +126,83 @@ function parseHermesResponse(raw: string): { text: string } | null {
   return text ? { text } : null;
 }
 
+function parsePlainTextResponse(raw: string): { text: string } | null {
+  const text = raw.trim();
+  return text ? { text } : null;
+}
+
+function parseCodexJsonLine(line: string): { text?: string; progress?: string; toolName?: string } | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>;
+    const method = typeof obj.method === 'string' ? obj.method : typeof obj.type === 'string' ? obj.type : '';
+    const params = typeof obj.params === 'object' && obj.params !== null ? obj.params as Record<string, unknown> : {};
+    const topLevelItem = typeof obj.item === 'object' && obj.item !== null ? obj.item as Record<string, unknown> : null;
+    const paramItem = typeof params.item === 'object' && params.item !== null ? params.item as Record<string, unknown> : null;
+    const item = topLevelItem ?? paramItem ?? {};
+    const message = typeof params.message === 'string' ? params.message : '';
+
+    if (method.includes('message') && message) {
+      return { text: message };
+    }
+    if (method.includes('item/started') || method.includes('item.started')) {
+      const itemType = String(item.type ?? item.item_type ?? 'tool');
+      const command = typeof item.command === 'string' ? item.command : '';
+      return { progress: command ? `Running ${command}` : `Using ${itemType}`, toolName: 'Codex' };
+    }
+    if (method.includes('item/completed') || method.includes('item.completed')) {
+      const itemType = String(item.type ?? item.item_type ?? '');
+      const text = typeof item.text === 'string' ? item.text : '';
+      if (itemType === 'agent_message' && text) {
+        return { text };
+      }
+      const output = typeof item.aggregated_output === 'string' ? item.aggregated_output.trim() : '';
+      if (output) return { progress: output.slice(0, 160), toolName: 'Codex' };
+      return { progress: 'Completed a Codex step', toolName: 'Codex' };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function parseClaudeStreamJsonLine(line: string): { text?: string; progress?: string; toolName?: string; final?: boolean } | null {
+  try {
+    const obj = JSON.parse(line) as Record<string, unknown>;
+    const type = typeof obj.type === 'string' ? obj.type : '';
+    const event = typeof obj.event === 'object' && obj.event !== null ? obj.event as Record<string, unknown> : null;
+    const eventType = typeof event?.type === 'string' ? event.type : '';
+
+    if (type === 'assistant') {
+      // The final assistant object repeats the streamed deltas; ignore it here
+      // and rely on the final result event for non-streaming fallback.
+      return null;
+    }
+
+    if (type === 'content_block_delta' || eventType === 'content_block_delta') {
+      const source = event ?? obj;
+      const delta = typeof source.delta === 'object' && source.delta !== null ? source.delta as Record<string, unknown> : {};
+      const text = typeof delta.text === 'string' ? delta.text : '';
+      return text ? { text } : null;
+    }
+
+    if (type === 'tool_use' || type === 'tool_result' || eventType === 'tool_use' || eventType === 'tool_result') {
+      const source = event ?? obj;
+      const name = typeof source.name === 'string' ? source.name : 'Claude Code';
+      const isToolUse = type === 'tool_use' || eventType === 'tool_use';
+      return { progress: isToolUse ? `Using ${name}` : `Finished ${name}`, toolName: name };
+    }
+
+    if (type === 'result') {
+      const text = typeof obj.result === 'string' ? obj.result : '';
+      return text ? { text, final: true } : { final: true };
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function sanitizeOpenClawError(stderr: string): string {
   return stderr
     .split('\n')
@@ -168,7 +245,20 @@ function resolveHermesToolsets(instruction: string): string {
   if (shouldEnableHermesBrowserAutomation(instruction)) {
     fastToolsets.splice(1, 0, 'browser');
   }
+  if (shouldEnableHermesComputerUse(instruction) && isHermesComputerUseAvailable()) {
+    fastToolsets.splice(1, 0, 'computer_use');
+  }
   return fastToolsets.join(',');
+}
+
+function shouldEnableHermesComputerUse(instruction: string): boolean {
+  return /当前屏幕|当前窗口|这个应用|Telegram|微信|飞书|Lark|Finder|Figma|PDF|截图|点击|滚动|输入|拖拽|操作一下|computer use|computer-use|gui|desktop|screen/i.test(instruction);
+}
+
+function isHermesComputerUseAvailable(): boolean {
+  const override = process.env.HERMES_CUA_DRIVER_CMD?.trim();
+  if (override && fs.existsSync(override)) return true;
+  return resolveBinary('cua-driver') !== 'cua-driver';
 }
 
 function resolveGatewayPromptMode(): 'full' | 'minimal' | 'none' {
@@ -265,6 +355,8 @@ export class AgentService extends EventEmitter {
   /** Resolved absolute paths (lazy, set on first execute) */
   private openclawBin = 'openclaw';
   private hermesBin = 'hermes';
+  private codexBin = 'codex';
+  private claudeBin = 'claude';
   private larkBin: string | null = null;
   private enhancedPath = process.env.PATH ?? '';
   private initialized = false;
@@ -279,14 +371,18 @@ export class AgentService extends EventEmitter {
 
     this.openclawBin = resolveBinary('openclaw');
     this.hermesBin = resolveBinary('hermes');
+    this.codexBin = resolveBinary('codex');
+    this.claudeBin = resolveBinary('claude');
     this.enhancedPath = buildEnhancedPath(this.openclawBin);
 
-    const lark = resolveBinary('lark');
-    this.larkBin = lark !== 'lark' ? lark : null;
+    const lark = resolveBinary('lark-cli');
+    this.larkBin = lark !== 'lark-cli' ? lark : null;
 
     logger.info('AgentService initialized', {
       openclawBin: this.openclawBin,
       hermesBin: this.hermesBin,
+      codexBin: this.codexBin,
+      claudeBin: this.claudeBin,
       larkBin: this.larkBin ?? '(not found)',
     });
   }
@@ -354,11 +450,11 @@ export class AgentService extends EventEmitter {
           gatewayTransport: runtime === 'openclaw' && useGatewayAgent && shouldUseOpenClawWebSocketAgent() ? 'websocket' : undefined,
           hermesToolsets: runtime === 'hermes' ? hermesToolsets : undefined,
         });
-        if (runtime === 'hermes') {
+        if (runtime !== 'openclaw') {
           this.emit('chunk', {
             type: 'tool_use',
-            text: 'Starting Hermes CLI fallback',
-            toolName: 'Hermes',
+            text: `Starting ${this.runtimeDisplayName(runtime)} CLI`,
+            toolName: this.runtimeDisplayName(runtime),
           });
         }
         if (runtime === 'openclaw' && useGatewayAgent && shouldUseOpenClawWebSocketAgent()) {
@@ -373,44 +469,12 @@ export class AgentService extends EventEmitter {
           return;
         }
 
-        const proc = runtime === 'hermes'
-          ? spawn(
-              this.hermesBin,
-              [
-                '--oneshot', prompt,
-                '--toolsets', hermesToolsets,
-              ],
-              {
-                env: { ...process.env, PATH: buildEnhancedPath(this.hermesBin), HERMES_ACCEPT_HOOKS: '1' },
-                shell: false,
-              },
-            )
-          : spawn(
-              this.openclawBin,
-              useGatewayAgent
-                ? [
-                    'gateway',
-                    'call',
-                    'agent',
-                    '--expect-final',
-                    '--json',
-                    '--timeout', String(Number(process.env.SARAH_OPENCLAW_GATEWAY_TIMEOUT_MS ?? 180_000)),
-                    '--params', gatewayParams,
-                  ]
-                : [
-                    'agent',
-                    '--agent', resolveOpenClawAgentId(),
-                    '--json',
-                    '--thinking', process.env.SARAH_OPENCLAW_THINKING?.trim() || 'off',
-                    '--session-id', this.sessionId,
-                    '--message', prompt,
-                    ...(resolveOpenClawModel() ? ['--model', resolveOpenClawModel() as string] : []),
-                  ],
-              {
-                env: { ...process.env, PATH: this.enhancedPath },
-                shell: false,
-              },
-            );
+        const proc = this.spawnRuntime(runtime, {
+          prompt,
+          hermesToolsets,
+          gatewayParams,
+          useGatewayAgent,
+        });
 
         this.proc = proc;
         let fullResponse = '';
@@ -418,13 +482,44 @@ export class AgentService extends EventEmitter {
         let stderrBuf = '';
         let tFirstStdout = 0;
         let tFirstStderr = 0;
+        const stdout = proc.stdout;
+        const stderr = proc.stderr;
 
-        proc.stdout.on('data', (chunk: Buffer) => {
+        stdout?.on('data', (chunk: Buffer) => {
           if (tFirstStdout === 0) tFirstStdout = Date.now();
-          stdoutBuf += chunk.toString();
+          const data = chunk.toString();
+          stdoutBuf += data;
+          if (runtime === 'codex') {
+            for (const line of data.split('\n').map((item) => item.trim()).filter(Boolean)) {
+              const parsed = parseCodexJsonLine(line);
+              if (!parsed) continue;
+              if (parsed.progress) {
+                this.emit('chunk', { type: 'tool_use', text: parsed.progress, toolName: parsed.toolName });
+              }
+              if (parsed.text) {
+                fullResponse += parsed.text;
+                this.emit('chunk', { type: 'text', text: parsed.text });
+              }
+            }
+          } else if (runtime === 'claude') {
+            for (const line of data.split('\n').map((item) => item.trim()).filter(Boolean)) {
+              const parsed = parseClaudeStreamJsonLine(line);
+              if (!parsed) continue;
+              if (parsed.progress) {
+                this.emit('chunk', { type: 'tool_use', text: parsed.progress, toolName: parsed.toolName });
+              }
+              if (parsed.text) {
+                if (parsed.final && fullResponse.trim()) {
+                  continue;
+                }
+                fullResponse += parsed.text;
+                this.emit('chunk', { type: 'text', text: parsed.text });
+              }
+            }
+          }
         });
 
-        proc.stderr.on('data', (chunk: Buffer) => {
+        stderr?.on('data', (chunk: Buffer) => {
           if (tFirstStderr === 0) tFirstStderr = Date.now();
           const data = chunk.toString();
           stderrBuf += data;
@@ -445,10 +540,10 @@ export class AgentService extends EventEmitter {
           if (this.activeRunId === runId) {
             this.activeRunId = null;
           }
-          const parsed = runtime === 'hermes' ? parseHermesResponse(stdoutBuf) : parseOpenClawResponse(stdoutBuf);
+          const parsed = this.parseRuntimeResponse(runtime, stdoutBuf, fullResponse);
           logger.info('agent-runtime-timing', {
             runtime,
-            transport: runtime === 'hermes' ? 'hermes-oneshot' : useGatewayAgent ? 'gateway-call' : 'agent-cli',
+            transport: this.runtimeTransportName(runtime, useGatewayAgent),
             spawn_to_first_stderr_ms: tFirstStderr ? tFirstStderr - tSpawn : null,
             spawn_to_first_stdout_ms: tFirstStdout ? tFirstStdout - tSpawn : null,
             spawn_to_close_ms: tClose - tSpawn,
@@ -460,8 +555,13 @@ export class AgentService extends EventEmitter {
 
           if (code === 0 || code === null) {
             if (parsed?.text) {
+              const textToEmit = runtime === 'codex' && fullResponse && parsed.text.startsWith(fullResponse)
+                ? parsed.text.slice(fullResponse.length)
+                : parsed.text;
               fullResponse = parsed.text;
-              await this.emitVisibleText(runVersion, parsed.text);
+              if (textToEmit) {
+                await this.emitVisibleText(runVersion, textToEmit);
+              }
             }
             memoryService.appendAction(instruction, fullResponse);
             if (fullResponse.trim()) {
@@ -471,7 +571,9 @@ export class AgentService extends EventEmitter {
               this.emit('done');
             }
           } else {
-            const cleanedError = runtime === 'hermes' ? sanitizeHermesError(stderrBuf) : sanitizeOpenClawError(stderrBuf);
+            const cleanedError = runtime === 'hermes' || runtime === 'codex' || runtime === 'claude'
+              ? sanitizeHermesError(stderrBuf)
+              : sanitizeOpenClawError(stderrBuf);
             logger.warn('agent runtime exited non-zero', { runtime, code, stderr: cleanedError.slice(0, 400) });
             const isAuthError =
               cleanedError.includes('auth') ||
@@ -479,9 +581,10 @@ export class AgentService extends EventEmitter {
               cleanedError.includes('API key') ||
               cleanedError.includes('401') ||
               cleanedError.includes('403');
+            const runtimeName = this.runtimeDisplayName(runtime);
             const message = isAuthError
-              ? `${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} 未登录或鉴权失败。请先在设置里切换运行时，或在终端确认 ${runtime === 'hermes' ? '`hermes status`' : '`openclaw whoami`'} 可用。`
-              : `${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} 退出，代码 ${code}。\n可先在 Settings 切换 agent runtime 后重试。\n${cleanedError.slice(0, 200)}`;
+              ? `${runtimeName} 未登录或鉴权失败。请先在设置里切换运行时，或在终端完成 ${this.runtimeSetupCommand(runtime)}。`
+              : `${runtimeName} 退出，代码 ${code}。\n可先在 Settings 切换 agent runtime 后重试。\n${cleanedError.slice(0, 200)}`;
             if (runVersion === this.runVersion) {
               this.emit('error', message);
             }
@@ -502,12 +605,13 @@ export class AgentService extends EventEmitter {
           if (this.activeRunId === runId) {
             this.activeRunId = null;
           }
-          const runtimeBin = runtime === 'hermes' ? this.hermesBin : this.openclawBin;
+          const runtimeBin = this.runtimeBinary(runtime);
           logger.error('Failed to spawn agent runtime', { runtime, code: err.code, bin: runtimeBin });
+          const runtimeName = this.runtimeDisplayName(runtime);
           const message =
             err.code === 'ENOENT'
-              ? `${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} CLI 未找到 (尝试路径: ${runtimeBin})。请先安装或在 Settings 切换运行时。`
-              : `无法启动 ${runtime === 'hermes' ? 'Hermes' : 'OpenClaw'} CLI: ${err.message}`;
+              ? `${runtimeName} CLI 未找到 (尝试路径: ${runtimeBin})。请先安装或在 Settings 切换运行时。`
+              : `无法启动 ${runtimeName} CLI: ${err.message}`;
           this.emit('error', message);
           this.drainQueue();
           resolve();
@@ -673,6 +777,130 @@ export class AgentService extends EventEmitter {
     return this.running;
   }
 
+  private runtimeDisplayName(runtime: AgentRuntimeId): string {
+    if (runtime === 'hermes') return 'Hermes';
+    if (runtime === 'codex') return 'Codex';
+    if (runtime === 'claude') return 'Claude Code';
+    return 'OpenClaw';
+  }
+
+  private runtimeBinary(runtime: AgentRuntimeId): string {
+    if (runtime === 'hermes') return this.hermesBin;
+    if (runtime === 'codex') return this.codexBin;
+    if (runtime === 'claude') return this.claudeBin;
+    return this.openclawBin;
+  }
+
+  private runtimeSetupCommand(runtime: AgentRuntimeId): string {
+    if (runtime === 'hermes') return '`hermes status`';
+    if (runtime === 'codex') return '`codex`';
+    if (runtime === 'claude') return '`claude`';
+    return '`openclaw whoami`';
+  }
+
+  private runtimeTransportName(runtime: AgentRuntimeId, useGatewayAgent: boolean): string {
+    if (runtime === 'hermes') return 'hermes-oneshot';
+    if (runtime === 'codex') return 'codex-exec';
+    if (runtime === 'claude') return 'claude-print';
+    return useGatewayAgent ? 'gateway-call' : 'agent-cli';
+  }
+
+  private parseRuntimeResponse(runtime: AgentRuntimeId, stdout: string, streamedText: string): { text: string } | null {
+    if (runtime === 'hermes') return parseHermesResponse(stdout);
+    if (runtime === 'codex') {
+      if (streamedText.trim()) return { text: streamedText.trim() };
+      return parsePlainTextResponse(stdout);
+    }
+    if (runtime === 'claude') {
+      if (streamedText.trim()) return { text: streamedText.trim() };
+      return parsePlainTextResponse(stdout);
+    }
+    return parseOpenClawResponse(stdout);
+  }
+
+  private spawnRuntime(
+    runtime: AgentRuntimeId,
+    options: {
+      prompt: string;
+      hermesToolsets: string;
+      gatewayParams: string;
+      useGatewayAgent: boolean;
+    },
+  ): ReturnType<typeof spawn> {
+    if (runtime === 'hermes') {
+      return spawn(
+        this.hermesBin,
+        ['--oneshot', options.prompt, '--toolsets', options.hermesToolsets],
+        {
+          env: { ...process.env, PATH: buildEnhancedPath(this.hermesBin), HERMES_ACCEPT_HOOKS: '1' },
+          shell: false,
+        },
+      );
+    }
+
+    if (runtime === 'codex') {
+      return spawn(
+        this.codexBin,
+        [
+          'exec',
+          '--json',
+          '--skip-git-repo-check',
+          '--cd', process.cwd(),
+          options.prompt,
+        ],
+        {
+          env: { ...process.env, PATH: buildEnhancedPath(this.codexBin) },
+          shell: false,
+        },
+      );
+    }
+
+    if (runtime === 'claude') {
+      return spawn(
+        this.claudeBin,
+        [
+          '-p',
+          '--verbose',
+          '--output-format', 'stream-json',
+          '--include-partial-messages',
+          '--permission-mode', process.env.SARAH_CLAUDE_PERMISSION_MODE?.trim() || 'default',
+          options.prompt,
+        ],
+        {
+          env: { ...process.env, PATH: buildEnhancedPath(this.claudeBin) },
+          shell: false,
+        },
+      );
+    }
+
+    return spawn(
+      this.openclawBin,
+      options.useGatewayAgent
+        ? [
+            'gateway',
+            'call',
+            'agent',
+            '--expect-final',
+            '--json',
+            '--timeout', String(Number(process.env.SARAH_OPENCLAW_GATEWAY_TIMEOUT_MS ?? 180_000)),
+            '--params', options.gatewayParams,
+          ]
+        : [
+            'agent',
+            '--agent', resolveOpenClawAgentId(),
+            '--json',
+            '--thinking', process.env.SARAH_OPENCLAW_THINKING?.trim() || 'off',
+            '--session-id', this.sessionId,
+            '--message', options.prompt,
+            ...(resolveOpenClawModel() ? ['--model', resolveOpenClawModel() as string] : []),
+          ],
+      {
+        env: { ...process.env, PATH: this.enhancedPath },
+        shell: false,
+      },
+    );
+  }
+
   // ─── Prompt ────────────────────────────────────────────────────────────────
 
   private buildGatewayPrompt(
@@ -694,6 +922,7 @@ export class AgentService extends EventEmitter {
       context.windowTitle ? `窗口：${context.windowTitle}` : '',
       context.url ? `URL：${context.url}` : '',
       context.screenshotPath ? `截图：${context.screenshotPath}` : '',
+      context.ocrText ? `截图 OCR：\n${context.ocrText}` : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -747,6 +976,7 @@ ${instruction}`;
       context.windowTitle ? `窗口：${context.windowTitle}` : '',
       context.url ? `URL：${context.url}` : '',
       context.screenshotPath ? `截图路径：${context.screenshotPath}` : '',
+      context.ocrText ? `截图 OCR：\n${context.ocrText}` : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -765,6 +995,11 @@ ${instruction}`;
     } else if (!hasUrl && hasScreenshot) {
       contextLimitations.push(
         '- 当前没有 URL，但有截图路径。用户说”当前页面/这个页面”时，直接分析截图内容来完成任务。不要要求用户提供 URL 或自己截图。',
+      );
+    }
+    if (context.ocrText) {
+      contextLimitations.push(
+        '- 当前截图已经做过 OCR。涉及 Telegram/微信/PDF/图片/非浏览器 App 时，优先使用“截图 OCR”中的可见文字，并结合截图路径核对。',
       );
     }
     const limitationsBlock = contextLimitations.length

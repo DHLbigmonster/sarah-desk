@@ -21,7 +21,8 @@
  */
 
 import log from 'electron-log';
-import { globalShortcut } from 'electron';
+import { execFile } from 'node:child_process';
+import { globalShortcut, shell } from 'electron';
 import { UiohookKey } from 'uiohook-napi';
 import { keyboardService } from '../keyboard';
 import { asrService } from '../asr';
@@ -36,6 +37,10 @@ import type { HotkeyConfig } from '../../../shared/types/clawdesk-settings';
 import { resolveTriggerKeycode } from '../../../shared/types/clawdesk-settings';
 
 const logger = log.scope('voice-mode-manager');
+const VOICE_CUE_SOUNDS = {
+  start: '/System/Library/Sounds/Ping.aiff',
+  stop: '/System/Library/Sounds/Pop.aiff',
+} as const;
 
 export type VoiceState =
   | 'idle'
@@ -200,12 +205,21 @@ export class VoiceModeManager {
     await this.stopCurrentMode();
   }
 
+  async testQuickAskToggle(): Promise<void> {
+    if (this.state === 'idle') {
+      await this.startQuickAsk();
+      return;
+    }
+    await this.stopCurrentMode();
+  }
+
   /** Cancel recording without executing (floating window ✕ button). */
   async cancel(): Promise<void> {
     if (this.state === 'idle') return;
     const prev = this.state;
     this.state = 'idle';
     logger.info('VoiceModeManager: CANCEL', { prev });
+    this.playVoiceCue('stop');
     await asrService.stop();
     this.publishOverlayState('idle', 'idle');
     floatingWindow.hide();
@@ -294,6 +308,7 @@ export class VoiceModeManager {
     logger.info('VoiceModeManager: START dictation');
     this.state = 'dictation_recording';
     this.publishOverlayState('dictation', 'recording');
+    this.playVoiceCue('start');
     try {
       await asrService.start();
     } catch (err) {
@@ -328,6 +343,7 @@ export class VoiceModeManager {
 
     this.state = 'command_recording';
     this.publishOverlayState('command', 'recording');
+    this.playVoiceCue('start');
 
     try {
       await asrService.start();
@@ -350,6 +366,7 @@ export class VoiceModeManager {
     logger.info('VoiceModeManager: START quickask');
     this.state = 'quickask_recording';
     this.publishOverlayState('quickask', 'recording');
+    this.playVoiceCue('start');
     try {
       await asrService.start();
     } catch (err) {
@@ -373,6 +390,7 @@ export class VoiceModeManager {
     if (this.state !== 'dictation_recording') return;
     this.state = 'idle';
     logger.info('VoiceModeManager: STOP dictation');
+    this.playVoiceCue('stop');
 
     try {
       this.publishOverlayState('dictation', 'processing');
@@ -402,6 +420,9 @@ export class VoiceModeManager {
       const insertResult = textInputService.insert(refined);
       if (!insertResult.success) {
         floatingWindow.sendError(`Insert failed: ${insertResult.error}`);
+      } else if (insertResult.destination === 'clipboard') {
+        this.publishOverlayState('dictation', 'done');
+        floatingWindow.sendNotice('刚刚说的内容已经进入到剪切板了');
       } else {
         this.publishOverlayState('dictation', 'done');
         this.resetOverlayAndHide();
@@ -417,6 +438,7 @@ export class VoiceModeManager {
     if (this.state !== 'command_recording') return;
     this.state = 'idle';
     logger.info('VoiceModeManager: STOP command');
+    this.playVoiceCue('stop');
 
     const t0 = Date.now();
     try {
@@ -468,6 +490,7 @@ export class VoiceModeManager {
     if (this.state !== 'quickask_recording') return;
     this.state = 'idle';
     logger.info('VoiceModeManager: STOP quickask');
+    this.playVoiceCue('stop');
 
     const t0 = Date.now();
     try {
@@ -513,6 +536,29 @@ export class VoiceModeManager {
       const msg = err instanceof Error ? err.message : String(err);
       floatingWindow.sendError(`错误: ${msg}`);
     }
+  }
+
+  private playVoiceCue(_cue: 'start' | 'stop'): void {
+    const soundPath = VOICE_CUE_SOUNDS[_cue];
+    try {
+      shell.beep();
+    } catch (beepError) {
+      logger.debug('voice cue shell beep failed', {
+        cue: _cue,
+        error: beepError instanceof Error ? beepError.message : String(beepError),
+      });
+    }
+
+    execFile('/usr/bin/afplay', ['-v', '0.9', soundPath], { timeout: 1500 }, (error) => {
+      if (!error) {
+        return;
+      }
+
+      logger.debug('voice cue afplay failed', {
+        cue: _cue,
+        error: error.message,
+      });
+    });
   }
 }
 

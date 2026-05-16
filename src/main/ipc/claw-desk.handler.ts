@@ -12,6 +12,7 @@ import { credentialStore } from '../services/config/credential-store';
 import type { AgentRuntimeId, HotkeyConfig } from '../../shared/types/clawdesk-settings';
 
 const logger = log.scope('clawdesk-voice-input');
+const AGENT_RUNTIME_IDS: AgentRuntimeId[] = ['openclaw', 'hermes', 'codex', 'claude'];
 
 let clawDeskVoiceRecording = false;
 let voiceTransition: Promise<unknown> | null = null;
@@ -115,6 +116,11 @@ export function setupClawDeskHandlers(): void {
   );
 
   ipcMain.handle(
+    IPC_CHANNELS.CLAW_DESK.CHECK_VOICE_TRIGGER,
+    async (_event, config: HotkeyConfig) => hotkeyManager.checkVoiceTrigger(config),
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.CLAW_DESK.VOICE_INPUT_TOGGLE,
     async () => {
       // Serialize concurrent toggle requests through a promise chain
@@ -201,7 +207,7 @@ export function setupClawDeskHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.CLAW_DESK.SET_AGENT_RUNTIME,
     async (_event, runtimeId: AgentRuntimeId) => {
-      if (runtimeId !== 'openclaw' && runtimeId !== 'hermes') {
+      if (!AGENT_RUNTIME_IDS.includes(runtimeId)) {
         throw new Error(`Unknown agent runtime: ${runtimeId}`);
       }
       clawDeskSettingsService.setSelectedAgentRuntime(runtimeId);
@@ -212,7 +218,7 @@ export function setupClawDeskHandlers(): void {
   ipcMain.handle(
     IPC_CHANNELS.CLAW_DESK.CONNECT_AGENT_RUNTIME,
     async (_event, runtimeId: AgentRuntimeId) => {
-      if (runtimeId !== 'openclaw' && runtimeId !== 'hermes') {
+      if (!AGENT_RUNTIME_IDS.includes(runtimeId)) {
         throw new Error(`Unknown agent runtime: ${runtimeId}`);
       }
       return clawDeskSettingsService.connectAgentRuntime(runtimeId);

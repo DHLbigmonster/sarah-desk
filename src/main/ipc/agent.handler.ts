@@ -74,6 +74,7 @@ export function setupAgentHandlers(): void {
           windowTitle: string;
           url?: string;
           screenshotPath?: string;
+          ocrText?: string;
         };
       },
     ) => {

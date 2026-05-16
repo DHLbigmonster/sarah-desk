@@ -249,13 +249,13 @@ kbd {
 
 .quick-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 10px;
 }
 
 .primary-action {
-  height: 48px;
+  height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -267,7 +267,7 @@ kbd {
   box-shadow:
     0 10px 24px rgba(39, 117, 209, 0.22),
     0 1px 0 rgba(255, 255, 255, 0.12) inset;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 740;
   cursor: pointer;
   transition: transform 140ms ease, filter 140ms ease;
